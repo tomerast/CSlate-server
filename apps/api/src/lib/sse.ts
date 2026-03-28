@@ -29,6 +29,7 @@ export async function streamUploadProgress(c: Context, uploadId: string): Promis
         })
       })
     } finally {
+      await pgClient.query('UNLISTEN *')
       pgClient.release()
     }
   })

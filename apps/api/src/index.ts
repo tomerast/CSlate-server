@@ -8,6 +8,7 @@ import { uploadRoutes } from './routes/uploads'
 import { checkpointRoutes } from './routes/checkpoints'
 import { userRoutes } from './routes/users'
 
+import { log } from './lib/logger'
 export { log } from './lib/logger'
 
 const app = new Hono()
