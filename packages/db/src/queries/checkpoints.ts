@@ -1,4 +1,4 @@
-import { eq, and } from 'drizzle-orm'
+import { eq, and, sql } from 'drizzle-orm'
 import { getDb } from '../client'
 import { checkpoints, type Checkpoint, type NewCheckpoint } from '../schema'
 
@@ -47,6 +47,6 @@ export async function deleteCheckpoint(userId: string, projectId: string, compon
 
 export async function countUserCheckpoints(userId: string): Promise<number> {
   const db = getDb()
-  const result = await db.select({ count: checkpoints.id }).from(checkpoints).where(eq(checkpoints.userId, userId))
-  return result.length
+  const result = await db.select({ count: sql<number>`count(*)::int` }).from(checkpoints).where(eq(checkpoints.userId, userId))
+  return result[0]?.count ?? 0
 }

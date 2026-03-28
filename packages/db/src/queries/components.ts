@@ -111,28 +111,41 @@ export async function createComponent(data: NewComponent & { embedding?: number[
   return comp
 }
 
-export async function updateComponent(id: string, data: Partial<Component>): Promise<Component> {
+type ComponentUpdateFields = Partial<Pick<Component,
+  'flagged' | 'revoked' | 'revokeReason' | 'revokedAt' |
+  'summary' | 'contextSummary' | 'category' | 'subcategory' |
+  'complexity' | 'downloadCount' | 'ratingSum' | 'ratingCount' |
+  'manifest' | 'tags' | 'description' | 'title' | 'updatedAt'
+>>
+
+export async function updateComponent(id: string, data: ComponentUpdateFields): Promise<Component> {
   const db = getDb()
   const [comp] = await db.update(components).set({ ...data, updatedAt: new Date() }).where(eq(components.id, id)).returning()
   if (!comp) throw new Error('Component not found')
   return comp
 }
 
+const PERIOD_SECONDS: Record<'day' | 'week' | 'month', number> = {
+  day: 86400,
+  week: 604800,
+  month: 2592000,
+}
+
 export async function getTrendingComponents(period: 'day' | 'week' | 'month', limit = 20): Promise<Component[]> {
   const pool = getPool()
-  const interval = { day: '1 day', week: '7 days', month: '30 days' }[period]
+  const periodSeconds = PERIOD_SECONDS[period]
 
   const res = await pool.query(`
     SELECT c.*, COUNT(de.id) AS download_recent
     FROM components c
     LEFT JOIN download_events de
       ON de.component_id = c.id
-      AND de.created_at > NOW() - INTERVAL '${interval}'
+      AND de.created_at > NOW() - ($1 * INTERVAL '1 second')
     WHERE c.flagged = false AND c.revoked = false
     GROUP BY c.id
     ORDER BY download_recent DESC, c.download_count DESC
-    LIMIT $1
-  `, [limit])
+    LIMIT $2
+  `, [periodSeconds, limit])
 
   return res.rows as Component[]
 }

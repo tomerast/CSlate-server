@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { getDb, getPool, getUserById, updateUser, countUserCheckpoints } from '@cslate/db'
+import { getDb, getUserById, updateUser, countUserCheckpoints } from '@cslate/db'
 import { components, checkpoints, uploads } from '@cslate/db'
-import { eq, desc, count, sum } from 'drizzle-orm'
+import { eq, desc, count, sum, and } from 'drizzle-orm'
 import { authMiddleware } from '../middleware/auth'
 
 export const userRoutes = new Hono()
@@ -12,7 +12,6 @@ export const userRoutes = new Hono()
 userRoutes.get('/me', authMiddleware, async (c) => {
   const user = c.get('user')
   const db = getDb()
-  const pool = getPool()
 
   const [componentCount, uploadCount] = await Promise.all([
     db.select({ count: count() }).from(components).where(eq(components.authorId, user.id)),
@@ -56,7 +55,6 @@ userRoutes.get(
     const user = c.get('user')
     const { limit, offset } = c.req.valid('query')
     const db = getDb()
-    const pool = getPool()
 
     const userComponents = await db.query.components.findMany({
       where: eq(components.authorId, user.id),
@@ -82,7 +80,7 @@ userRoutes.get(
     const db = getDb()
 
     const where = projectId
-      ? eq(checkpoints.userId, user.id)
+      ? and(eq(checkpoints.userId, user.id), eq(checkpoints.projectId, projectId))
       : eq(checkpoints.userId, user.id)
 
     const userCheckpoints = await db.query.checkpoints.findMany({

@@ -1,5 +1,5 @@
 import { PipelineContext, StageResult, Issue } from '../types'
-import { execSync } from 'child_process'
+import { spawn } from 'child_process'
 import { mkdirSync, writeFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
@@ -50,8 +50,38 @@ export async function testRender(ctx: PipelineContext): Promise<StageResult> {
       JSON.stringify(TSCONFIG_TEST, null, 2)
     )
 
-    // Run TypeScript compilation
-    execSync('npx tsc --noEmit', { cwd: tmpDir, stdio: 'pipe' })
+    // Run TypeScript compilation (non-blocking)
+    await new Promise<void>((resolve, reject) => {
+      // Use local tsc binary if available, fall back to npx
+      const tscBin = (() => {
+        try {
+          return require.resolve('typescript/bin/tsc')
+        } catch {
+          return null
+        }
+      })()
+
+      const [cmd, args] = tscBin
+        ? ['node', [tscBin, '--noEmit']]
+        : ['npx', ['tsc', '--noEmit']]
+
+      const proc = spawn(cmd, args, { cwd: tmpDir, stdio: 'pipe' })
+      const stderr: Buffer[] = []
+      const stdout: Buffer[] = []
+      proc.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk))
+      proc.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk))
+      proc.on('close', (code) => {
+        if (code === 0) {
+          resolve()
+        } else {
+          const output = Buffer.concat([...stdout, ...stderr]).toString()
+          const error = new Error(output) as Error & { stdout: string }
+          error.stdout = output
+          reject(error)
+        }
+      })
+      proc.on('error', reject)
+    })
 
     return {
       stage: 'test_render',
@@ -59,9 +89,7 @@ export async function testRender(ctx: PipelineContext): Promise<StageResult> {
       duration: Date.now() - start,
     }
   } catch (err: unknown) {
-    const output = (err as { stderr?: Buffer; stdout?: Buffer }).stderr?.toString()
-      ?? (err as { stderr?: Buffer; stdout?: Buffer }).stdout?.toString()
-      ?? String(err)
+    const output = (err as { stdout?: string }).stdout ?? String(err)
 
     // Parse TypeScript error output into issues
     const issues: Issue[] = parseTypeScriptErrors(output)

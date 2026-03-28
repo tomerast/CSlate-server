@@ -5,7 +5,6 @@ const OPTIONAL_FILES = ['context.md']
 const MAX_CONTEXT_MD_LENGTH = 2000
 const MAX_DATA_SOURCES = 5
 
-const TAILWIND_COLOR_REGEX = /\b(bg|text|border|ring|fill|stroke)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/
 
 export async function manifestValidation(ctx: PipelineContext): Promise<StageResult> {
   const start = Date.now()

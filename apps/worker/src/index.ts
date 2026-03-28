@@ -58,13 +58,23 @@ async function createNextMonthPartition() {
   nextMonth.setMonth(nextMonth.getMonth() + 1)
   const start = new Date(nextMonth.getFullYear(), nextMonth.getMonth(), 1)
   const end = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 1)
-  const name = `download_events_${start.getFullYear()}_${String(start.getMonth() + 1).padStart(2, '0')}`
+  const startStr = start.toISOString().slice(0, 10)
+  const endStr = end.toISOString().slice(0, 10)
+  const year = String(start.getFullYear())
+  const month = String(start.getMonth() + 1).padStart(2, '0')
+  const partitionName = `download_events_${year}_${month}`
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ${name} PARTITION OF download_events
-    FOR VALUES FROM ('${start.toISOString().slice(0, 10)}') TO ('${end.toISOString().slice(0, 10)}')
-  `)
-  log.info({ partition: name }, 'Created next month partition')
+  // Safe: name is constructed from date arithmetic, pattern validated
+  if (!/^download_events_\d{4}_\d{2}$/.test(partitionName)) {
+    log.error({ partitionName }, 'Invalid partition name — skipping')
+    return
+  }
+
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS "${partitionName}" PARTITION OF download_events FOR VALUES FROM ($1) TO ($2)`,
+    [startStr, endStr]
+  )
+  log.info({ partition: partitionName }, 'Created next month partition')
 }
 
 async function dropOldPartitions() {
@@ -75,17 +85,22 @@ async function dropOldPartitions() {
 
   const res = await pool.query<{ tablename: string }>(
     `SELECT tablename FROM pg_tables
-     WHERE tablename LIKE 'download_events_%' AND schemaname = 'public'`
+     WHERE tablename ~ '^download_events_\\d{4}_\\d{2}$' AND schemaname = 'public'`
   )
 
   for (const row of res.rows) {
+    // Validate pattern before using as identifier
+    if (!/^download_events_\d{4}_\d{2}$/.test(row.tablename)) continue
+
     const match = row.tablename.match(/download_events_(\d{4})_(\d{2})/)
     if (!match) continue
     const year = parseInt(match[1] ?? '0', 10)
     const month = parseInt(match[2] ?? '0', 10)
     const partitionDate = new Date(year, month - 1, 1)
+
     if (partitionDate < cutoff) {
-      await pool.query(`DROP TABLE IF EXISTS ${row.tablename}`)
+      // Use quoted identifier — tablename is validated above
+      await pool.query(`DROP TABLE IF EXISTS "${row.tablename}"`)
       log.info({ partition: row.tablename }, 'Dropped old partition')
     }
   }

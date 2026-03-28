@@ -2,19 +2,13 @@ import 'dotenv/config'
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { logger as honoLogger } from 'hono/logger'
-import pino from 'pino'
 import { authRoutes } from './routes/auth'
 import { componentRoutes } from './routes/components'
 import { uploadRoutes } from './routes/uploads'
 import { checkpointRoutes } from './routes/checkpoints'
 import { userRoutes } from './routes/users'
 
-export const log = pino({
-  level: process.env.LOG_LEVEL ?? 'info',
-  transport: process.env.NODE_ENV !== 'production'
-    ? { target: 'pino-pretty', options: { colorize: true } }
-    : undefined,
-})
+export { log } from './lib/logger'
 
 const app = new Hono()
 
@@ -32,8 +26,8 @@ app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOStri
 // API routes
 const api = new Hono()
 api.route('/auth', authRoutes)
-api.route('/components', componentRoutes)
 api.route('/components', uploadRoutes)
+api.route('/components', componentRoutes)
 api.route('/checkpoints', checkpointRoutes)
 api.route('/users', userRoutes)
 

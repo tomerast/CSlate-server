@@ -1,5 +1,5 @@
 import nodemailer from 'nodemailer'
-import { log } from '../index'
+import { log } from './logger'
 
 let _transporter: nodemailer.Transporter | null = null
 

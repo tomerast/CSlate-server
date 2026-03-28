@@ -12,6 +12,17 @@ import { authMiddleware } from '../middleware/auth'
 const pendingRegistrations = new Map<string, { email: string; expiresAt: number }>()
 const pendingRecoveries = new Map<string, { email: string; expiresAt: number }>()
 
+// Clean expired tokens every 5 minutes to prevent memory accumulation
+setInterval(() => {
+  const now = Date.now()
+  for (const [token, data] of pendingRegistrations) {
+    if (data.expiresAt < now) pendingRegistrations.delete(token)
+  }
+  for (const [token, data] of pendingRecoveries) {
+    if (data.expiresAt < now) pendingRecoveries.delete(token)
+  }
+}, 5 * 60 * 1000).unref() // .unref() so this doesn't prevent process exit
+
 const TOKEN_TTL_MS = 30 * 60 * 1000 // 30 minutes
 
 export const authRoutes = new Hono()
