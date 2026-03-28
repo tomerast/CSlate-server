@@ -1,8 +1,8 @@
 # CSlate-Server: Full Design Specification
 
 **Date:** 2026-03-28
-**Version:** 1.0
-**Status:** Review
+**Version:** 1.1
+**Status:** Updated (client contract v3 changes incorporated)
 
 ---
 
@@ -47,6 +47,10 @@ CSlate-Server is the backend for CSlate, an AI-powered desktop app building plat
 - Manage app layout/tabs (client-local)
 - Store full app projects (only individual component packages + checkpoints)
 - Store sensitive user credentials (API keys, tokens — those stay in Electron safeStorage)
+
+### Community Sharing: Opt-In (v3 change)
+
+Community sharing is **opt-in** as of client Decision 017 (GDPR compliance). The server does not change behavior — the review pipeline is unchanged. The client simply only uploads when the user explicitly confirms. This reduces abuse surface: every upload represents a deliberate community contribution.
 
 ---
 
@@ -101,8 +105,11 @@ CSlate-Server is the backend for CSlate, an AI-powered desktop app building plat
 | Validation | Zod | 3.x | Single source for runtime + types + RPC |
 | Logging | Pino | 9.x | Structured JSON, fastest Node.js logger |
 | Monorepo | Turborepo + pnpm | — | Workspace management, parallel builds |
-| Embedding | OpenAI text-embedding-3-small | 1536 dims | Cost-effective, good quality |
-| Review LLM | Claude Sonnet 4 or GPT-4o | — | Server-owned, strong code comprehension |
+| LLM Gateway | Vercel AI Gateway (`ai-gateway.vercel.sh`) | — | Hosted proxy — caching, observability, BYOK, provider fallback. See Decision 007 |
+| LLM SDK | `@ai-sdk/gateway` + `ai` | v6 | Unified model factory via `createGateway()`. Model strings: `anthropic/claude-sonnet-4.6` |
+| Embedding | `openai/text-embedding-3-small` via gateway | 1536 dims | Only OpenAI usage — passed as `byok` key |
+| Review LLM (quality/security) | `anthropic/claude-sonnet-4.6` via gateway | — | Best code comprehension and security reasoning |
+| Review LLM (cataloging) | `anthropic/claude-haiku-4.5-20251001` via gateway | — | 10× cheaper, sufficient for summary/tagging |
 | Deployment | Fly.io | — | Sub-second cold starts, FAS autoscaler |
 
 ---
@@ -138,6 +145,11 @@ cslate-server/
 │       ├── Dockerfile
 │       └── package.json
 │
+│   # NOTE: @cslate/shared is an EXTERNAL npm dependency (not a local package).
+│   # It contains the canonical ComponentManifest Zod schema and shared types.
+│   # Install it: pnpm add @cslate/shared
+│   # Import: import { ComponentManifest, ReviewStage } from '@cslate/shared'
+│
 ├── packages/
 │   ├── db/                           # Drizzle schema + queries
 │   │   ├── src/
@@ -147,12 +159,13 @@ cslate-server/
 │   │   │   │   ├── checkpoints.ts
 │   │   │   │   ├── uploads.ts
 │   │   │   │   ├── reports.ts
+│   │   │   │   ├── download-events.ts # Partitioned table DDL
 │   │   │   │   └── index.ts
 │   │   │   ├── queries/
 │   │   │   │   ├── components.ts     # Search, retrieve, catalog queries
 │   │   │   │   ├── checkpoints.ts
 │   │   │   │   └── users.ts
-│   │   │   ├── client.ts             # Drizzle client setup
+│   │   │   ├── client.ts             # Drizzle client (query pool) + pgPool (LISTEN pool)
 │   │   │   └── index.ts
 │   │   ├── drizzle/                  # Generated migrations
 │   │   └── drizzle.config.ts
@@ -160,21 +173,24 @@ cslate-server/
 │   ├── pipeline/                     # Review pipeline stages
 │   │   ├── src/
 │   │   │   ├── stages/
-│   │   │   │   ├── 1-structural.ts   # Manifest + file structure validation
-│   │   │   │   ├── 2-security.ts     # Static analysis + LLM security review
-│   │   │   │   ├── 3-dependency.ts   # npm allowlist + CSlate dep check
-│   │   │   │   ├── 4-quality.ts      # LLM code quality + context verification
-│   │   │   │   ├── 5-enrichment.ts   # LLM manifest enrichment (ai hints)
-│   │   │   │   ├── 6-cataloging.ts   # LLM summary + category + tags
-│   │   │   │   └── 7-embedding.ts    # Vector embedding generation + store
+│   │   │   │   ├── 1-manifest-validation.ts  # Zod schema + file structure
+│   │   │   │   ├── 2-security-scan.ts        # Static analysis + LLM (claude-haiku)
+│   │   │   │   ├── 3-dependency-check.ts     # npm allowlist + CSlate dep check
+│   │   │   │   ├── 4-quality-review.ts       # LLM code quality (claude-sonnet)
+│   │   │   │   ├── 5-test-render.ts          # TypeScript compilation
+│   │   │   │   ├── 6-cataloging.ts           # LLM summary + ai hints (claude-haiku)
+│   │   │   │   └── 7-embedding.ts            # Vector generation + DB store
 │   │   │   ├── types.ts              # StageInput, StageOutput interfaces
 │   │   │   ├── runner.ts             # Pipeline orchestrator (runs stages sequentially)
 │   │   │   └── index.ts
-│   │   └── config/
-│   │       ├── npm-allowlist.json    # Allowed npm packages
-│   │       ├── url-allowlist.json    # Tier 1 known-safe API domains
-│   │       ├── url-blocklist.json    # Tier 3 blocked patterns
-│   │       └── security-patterns.json # Blocked code patterns (fetch, eval, etc.)
+│   │   ├── config/
+│   │   │   ├── npm-allowlist.json    # Allowed npm packages
+│   │   │   ├── url-allowlist.json    # Tier 1 known-safe API domains
+│   │   │   ├── url-blocklist.json    # Tier 3 blocked patterns
+│   │   │   └── security-patterns.json # Blocked code patterns (fetch, eval, etc.)
+│   │   └── type-stubs/
+│   │       ├── bridge.d.ts           # Type stubs for bridge.fetch/subscribe/getConfig
+│   │       └── tsconfig.test.json    # tsconfig for TypeScript compilation in test_render stage
 │   │
 │   ├── storage/                      # R2 client + file operations
 │   │   └── src/
@@ -191,7 +207,8 @@ cslate-server/
 │   │
 │   └── llm/                          # LLM client abstraction
 │       └── src/
-│           ├── client.ts             # Unified LLM client (Anthropic/OpenAI)
+│           ├── gateway.ts            # createServerGatewayModel() — Vercel AI Gateway factory
+│           ├── client.ts             # Re-exports gateway factory + model ID constants
 │           ├── prompts/
 │           │   ├── security-review.ts
 │           │   ├── quality-review.ts
@@ -247,6 +264,9 @@ rating_sum      INTEGER DEFAULT 0            -- Sum of all ratings
 rating_count    INTEGER DEFAULT 0            -- Number of ratings
 parent_id       UUID REFERENCES components(id)  -- Previous version (if versioned)
 flagged         BOOLEAN DEFAULT false            -- Auto-flagged on 3+ reports
+revoked         BOOLEAN DEFAULT false            -- Author/admin-revoked (removed from all results)
+revoke_reason   TEXT CHECK (revoke_reason IN ('security', 'abuse', 'legal', 'author-request'))
+revoked_at      TIMESTAMPTZ
 created_at      TIMESTAMPTZ DEFAULT now()
 updated_at      TIMESTAMPTZ DEFAULT now()
 
@@ -330,15 +350,31 @@ INDEX idx_reports_component ON reports(component_id)
 ```
 
 #### `download_events`
-Tracks downloads for trending calculation.
-```
-id              UUID PRIMARY KEY DEFAULT gen_random_uuid()
-component_id    UUID REFERENCES components(id) ON DELETE CASCADE
-user_id         UUID REFERENCES users(id) ON DELETE SET NULL
-created_at      TIMESTAMPTZ DEFAULT now()
+Tracks downloads for trending calculation. **Partitioned by month** to prevent unbounded growth.
 
-INDEX idx_download_events_component_time ON download_events(component_id, created_at DESC)
+```sql
+-- Partitioned table (range partitioning by month)
+CREATE TABLE download_events (
+  id              UUID NOT NULL DEFAULT gen_random_uuid(),
+  component_id    UUID NOT NULL,   -- No FK on partitioned table (performance)
+  user_id         UUID,            -- Nullable (anonymous downloads in future)
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+) PARTITION BY RANGE (created_at);
+
+-- Create partitions for current + next month on startup, via maintenance job
+CREATE TABLE download_events_2026_03 PARTITION OF download_events
+  FOR VALUES FROM ('2026-03-01') TO ('2026-04-01');
+CREATE TABLE download_events_2026_04 PARTITION OF download_events
+  FOR VALUES FROM ('2026-04-01') TO ('2026-05-01');
+-- etc. — a maintenance job creates future partitions and drops partitions > 12 months old
+
+CREATE INDEX idx_download_events_component_time
+  ON download_events(component_id, created_at DESC);
 ```
+
+**Why partitioning from day 1:** At even 1,000 downloads/day, download_events grows to 365K rows/year. Trending queries (`WHERE created_at > now() - interval '7 days'`) scan only the current partition, not the full table. Dropping old partitions is instant (no DELETE overhead). Migrations on a hot table are risky — start partitioned.
+
+**Maintenance job:** A daily pg-boss scheduled job creates next month's partition 5 days early and drops partitions older than 12 months. Trending data beyond 12 months has no product value.
 
 ### Quotas
 
@@ -377,135 +413,158 @@ rating_sum::float / NULLIF(rating_count, 0) AS rating
 
 All routes are defined in `apps/api/src/routes/` using Hono with Zod validators. The Hono RPC mode exports route types for the Electron client to consume via `hc<AppType>()`.
 
+**All routes are versioned under `/api/v1/`.** Every response includes `API-Version: 1` header. When v2 is introduced, both versions run in parallel during a deprecation window.
+
 ### Route Groups
 
-#### Auth Routes (`/api/auth`)
+#### Auth Routes (`/api/v1/auth`)
 ```
-POST /api/auth/register
+POST /api/v1/auth/register
   Input: { email: string }
-  Output: 201 { apiKey: string, user: User }
-  Flow: Validate email → hash key → store user → return raw key (only time it's shown)
+  Output: 201 { message: 'verification email sent' }
 
-POST /api/auth/regenerate
+POST /api/v1/auth/verify
+  Input: { token: string }
+  Output: 200 { apiKey: string, user: User }
+
+POST /api/v1/auth/recover
+  Input: { email: string }
+  Output: 200 { message: 'recovery email sent' }
+
+POST /api/v1/auth/recover/confirm
+  Input: { token: string }
+  Output: 200 { apiKey: string }
+
+POST /api/v1/auth/regenerate
   Auth: Required
   Output: 200 { apiKey: string }
-  Flow: Generate new key → hash → update user → return raw key
 
-DELETE /api/auth/account
+DELETE /api/v1/auth/account
   Auth: Required
   Output: 204
-  Flow: Delete user + cascade (uploads, checkpoints, ratings, reports)
 ```
 
-#### Component Routes (`/api/components`)
+#### Component Routes (`/api/v1/components`)
 ```
-GET /api/components/search
+GET /api/v1/components/search
   Query: { q, tags?, category?, complexity?, limit?, offset?, minRating?, sortBy? }
   Output: 200 { results: SearchResult[], total, offset, limit }
 
-GET /api/components/:id
+GET /api/v1/components/:id
   Output: 200 { CommunityComponent (without files, with manifest) }
 
-GET /api/components/:id/source
+GET /api/v1/components/:id/source
   Query: { includeDeps?: boolean }
   Output: 200 { id, manifest, files: Record<string, string>, summary, authorDisplayName,
                  version, updatedAt, dependencies?: ComponentSource[], missingDependencies?: string[] }
 
-GET /api/components/:id/versions
+GET /api/v1/components/:id/versions
   Output: 200 { versions: { id, version, summary, createdAt }[] }
 
-GET /api/components/trending
+GET /api/v1/components/trending
   Query: { period?: 'day'|'week'|'month', limit?: number }
   Output: 200 { results: SearchResult[] }
 
-GET /api/components/popular
+GET /api/v1/components/popular
   Query: { limit?: number }
   Output: 200 { results: SearchResult[] }
 
-GET /api/components/tags
+GET /api/v1/components/tags
   Output: 200 { tags: { name: string, count: number }[] }
 
-GET /api/components/categories
+GET /api/v1/components/categories
   Output: 200 { categories: { name: string, subcategories: string[], count: number }[] }
 
-POST /api/components/:id/rate
+POST /api/v1/components/:id/rate
   Auth: Required
   Input: { rating: 1-5, comment?: string }
   Output: 200 { rating: number, ratingCount: number }
 
-POST /api/components/:id/report
+POST /api/v1/components/:id/report
   Auth: Required
-  Input: { reason: enum, description?: string }
+  Input: { reason: 'malicious'|'broken'|'inappropriate'|'copyright'|'other', description?: string }
   Output: 201 { reportId: string }
 
-POST /api/components/check-updates
+POST /api/v1/components/:id/revoke
+  Auth: Required (uploader only, or admin)
+  Input: { reason: 'security'|'abuse'|'legal'|'author-request', message?: string }
+  Output: 200 { id, revokedAt }
+  Flow: Mark component as revoked → remove from search → notify via check-updates endpoint
+
+POST /api/v1/components/check-updates
   Auth: Required
   Input: { componentIds: string[] }
-  Output: 200 { updates: { componentId, currentVersion, latestVersion, changelog, updatedAt }[] }
+  Output: 200 {
+    updates: { id, currentVersion, latestVersion, changelog?, updatedAt }[],
+    revocations: { id, reason: 'security'|'abuse'|'legal'|'author-request', message? }[]
+  }
+  Note: revocations[] lists component IDs the client has but have been revoked on the server.
+        Client shows notification but does NOT auto-delete — user decides.
 ```
 
-#### Upload Routes (`/api/components/upload`)
+#### Upload Routes (`/api/v1/components/upload`)
 ```
-POST /api/components/upload
+POST /api/v1/components/upload
   Auth: Required
   Input: { manifest: ComponentManifest, files: Record<string, string> }
   Output: 202 { uploadId: string, status: 'pending' }
   Flow: Validate manifest schema → store package in R2 → create upload record → enqueue review job
 
-GET /api/components/upload/:id/status
+GET /api/v1/components/upload/:id/status
   Auth: Required (must be uploader)
   Output: 200 { uploadId, status, currentStage?, completedStages, rejectionReasons?, componentId? }
 
-GET /api/components/upload/:id/stream
+GET /api/v1/components/upload/:id/stream
   Auth: Required (must be uploader)
   Output: text/event-stream (SSE)
-  Events: { stage, status, progress?, result?, issues? }
+  Events: { stage, status, completedStages, result?, issues? }
+  Note: Max 3 concurrent SSE connections per user
 ```
 
-#### Checkpoint Routes (`/api/checkpoints`)
+#### Checkpoint Routes (`/api/v1/checkpoints`)
 ```
-POST /api/checkpoints
+POST /api/v1/checkpoints
   Auth: Required
   Input: { projectId, componentLocalId, componentName, version, files, manifest, description, trigger }
   Output: 201 { id, createdAt }
 
-GET /api/checkpoints/:componentLocalId
+GET /api/v1/checkpoints/:componentLocalId
   Auth: Required
   Query: { projectId }
   Output: 200 { componentName, checkpoints: { id, version, description, trigger, createdAt }[] }
 
-GET /api/checkpoints/:componentLocalId/:version
+GET /api/v1/checkpoints/:componentLocalId/:version
   Auth: Required
   Query: { projectId }
   Output: 200 { full checkpoint with files and manifest }
 
-DELETE /api/checkpoints/:componentLocalId/:version
+DELETE /api/v1/checkpoints/:componentLocalId/:version
   Auth: Required
   Query: { projectId }
   Output: 204
 ```
 
-#### User Routes (`/api/users`)
+#### User Routes (`/api/v1/users`)
 ```
-GET /api/users/me
+GET /api/v1/users/me
   Auth: Required
   Output: 200 { id, email, displayName, createdAt, stats }
 
-GET /api/users/me/components
+GET /api/v1/users/me/components
   Auth: Required
   Query: { limit?, offset? }
   Output: 200 { components: CommunityComponent[], total }
 
-GET /api/users/me/checkpoints
+GET /api/v1/users/me/checkpoints
   Auth: Required
   Query: { projectId? }
   Output: 200 { checkpoints grouped by component }
 
-GET /api/users/me/quota
+GET /api/v1/users/me/quota
   Auth: Required
   Output: 200 { checkpoints: { used, max }, uploads: { used, max, resetAt } }
 
-PATCH /api/users/me
+PATCH /api/v1/users/me
   Auth: Required
   Input: { displayName?: string }
   Output: 200 { user }
@@ -546,15 +605,17 @@ interface Issue {
 }
 ```
 
-### Stage 1: Structural Validation (no LLM)
+### Stage 1: `manifest_validation` (no LLM)
 - Validate `manifest` against `@cslate/shared` Zod schema
 - Verify all files in `manifest.files[]` exist in uploaded `files` map
 - Verify file naming conventions (ui.tsx, logic.ts, types.ts, context.md)
-- TypeScript compilation check (transpile all .ts/.tsx files)
 - Verify `index.ts` exists with barrel exports
-- **Fail:** Invalid manifest, missing files, TypeScript errors
+- Verify `defaultSize` and `minSize` use `{ width: number, height: number }` format (in grid units ×8px) — reject old `cols/rows` format
+- Verify `dataSources` count ≤ 5 if present (error code: `TOO_MANY_DATA_SOURCES`)
+- Verify `context.md` length ≤ 2,000 characters (it's an AI-generated summary, not raw chat)
+- **Fail:** Invalid manifest, missing files, invalid field values, >5 dataSources
 
-### Stage 2: Security Scan (static analysis + LLM)
+### Stage 2: `security_scan` (static analysis + LLM)
 - **Static patterns** (regex/AST scan):
   - Block: `fetch(`, `XMLHttpRequest`, `new WebSocket(`, `navigator.sendBeacon`, `new EventSource(`
   - Block: `window.fetch`, `globalThis.fetch`
@@ -566,47 +627,62 @@ interface Issue {
 - **URL validation**:
   - Check `dataSources[].baseUrl` against Tier 1 (known-safe), Tier 3 (blocked)
   - Tier 2 (unknown) → flag for LLM review
-- **LLM review** for:
+- **LLM review** (claude-haiku-4-5 for speed + cost) for:
   - Obfuscation attempts (string concatenation to build `fetch`, encoded payloads)
   - Hidden behavior not matching component's stated purpose
   - Hardcoded sensitive values (API keys, tokens, passwords)
   - Data exfiltration vectors disguised as normal logic
 - **Fail:** Any critical security issue
 
-### Stage 3: Dependency Check (no LLM)
+### Stage 3: `dependency_check` (no LLM)
 - Validate `dependencies.npmPackages` against allowlist (`packages/pipeline/config/npm-allowlist.json`)
 - Check for known vulnerable package versions
 - Validate `dependencies.cslateComponents` exist in DB and are approved
 - Flag unknown npm packages for manual review
 - **Fail:** Malicious or disallowed npm packages. **Warning:** Unknown packages.
 
-### Stage 4: Quality Review (LLM)
+### Stage 4: `quality_review` (LLM — claude-sonnet-4-6)
+
+**Static pre-check (before LLM call):**
+- Scan all `.tsx`/`.ts` files for raw Tailwind color utilities using regex:
+  ```
+  /\b(bg|text|border|ring|fill|stroke)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/
+  ```
+- If any hardcoded color utility found → **hard reject** (no LLM call needed):
+  ```json
+  { "code": "STYLING_TOKEN_VIOLATION",
+    "message": "Component uses raw color utilities instead of semantic design tokens. Use bg-primary, text-muted, border-border etc. — not bg-blue-500, text-gray-900." }
+  ```
+  This is a static rule because CSlate's cross-theme compatibility depends on it absolutely.
+
+**LLM review:**
 - Code quality: readability, structure, React best practices
 - UI/logic separation: is business logic in `logic.ts`, not `ui.tsx`?
 - Type safety: are TypeScript types in `types.ts` complete? No `any` types?
-- Tailwind usage: semantic tokens (`bg-primary`) not hardcoded (`bg-blue-500`)
 - Manifest accuracy: do declared inputs/outputs/events/actions match actual code?
-- Context verification: does code align with requirements in `context.md`?
+- Context verification: does code align with requirements in `context.md` (AI-generated summary)?
 - dataSources: every `bridge.fetch(sourceId)` matches a declared `dataSources` entry
 - userConfig: sensitive fields accessed only via `bridge.getConfig()`, never hardcoded
 - Accessibility: semantic HTML, ARIA labels where appropriate
-- **Fail:** Major quality issues. **Warning:** Minor suggestions.
+- **Fail:** Major quality issues, token violations. **Warning:** Minor suggestions.
 
-### Stage 5: Manifest Enrichment (LLM)
-- Generate `ai.modificationHints` — specific, referencing actual file names and line ranges
-- Generate `ai.extensionPoints` — named customization surfaces
-- Verify/improve `description` for search clarity
-- Verify/add `tags` for comprehensive keyword coverage
-- **Always passes** (enrichment, not validation)
+### Stage 5: `test_render` (TypeScript compilation — no headless browser)
+- Write uploaded files to temp directory with bridge type stubs + tsconfig
+- Run `tsc --noEmit --strict` — zero tolerance for type errors
+- Capture all TS errors with file + line numbers
+- **Fail:** Any TypeScript compilation error
 
-### Stage 6: Cataloging (LLM)
+### Stage 6: `cataloging` (LLM — claude-haiku-4-5)
 - Generate 1-2 sentence `summary`
 - Assign `category` and `subcategory`
 - Estimate `complexity` (simple/moderate/complex)
 - Generate `contextSummary` from `context.md` — "why this was built"
-- **Always passes**
+- Generate `ai.modificationHints` — specific, file-referencing guidance for future AI agents
+- Generate `ai.extensionPoints` — named customization surfaces
+- Verify/improve `description` and `tags`
+- **Always passes** (enrichment, not validation)
 
-### Stage 7: Embedding + Store
+### Stage 7: `embedding` + Store
 - Compose embedding input text from: `description` + `name` + `tags` + `summary` + `contextSummary` + `dataSources` descriptions + input/output descriptions
 - Call embedding API (text-embedding-3-small, 1536 dims)
 - Compute `ai.similarTo` — top 5 nearest neighbors from pgvector
@@ -620,13 +696,13 @@ interface Issue {
 // packages/pipeline/src/runner.ts
 async function runPipeline(ctx: PipelineContext, onProgress: ProgressCallback): Promise<PipelineResult> {
   const stages = [
-    { name: 'structural_validation', fn: structuralValidation },
-    { name: 'security_scan', fn: securityScan },
-    { name: 'dependency_check', fn: dependencyCheck },
-    { name: 'quality_review', fn: qualityReview },
-    { name: 'manifest_enrichment', fn: manifestEnrichment },
-    { name: 'cataloging', fn: cataloging },
-    { name: 'embedding', fn: embeddingAndStore },
+    { name: 'manifest_validation', fn: manifestValidation },   // Zod schema + file structure
+    { name: 'security_scan', fn: securityScan },               // Static analysis + LLM
+    { name: 'dependency_check', fn: dependencyCheck },         // npm allowlist + CSlate deps
+    { name: 'quality_review', fn: qualityReview },             // LLM code quality + context
+    { name: 'test_render', fn: testRender },                   // TypeScript compilation
+    { name: 'cataloging', fn: cataloging },                    // LLM summary + ai hints
+    { name: 'embedding', fn: embeddingAndStore },              // Vector + DB store
   ]
 
   for (const stage of stages) {
@@ -659,11 +735,13 @@ Component: {name}
 Description: {description}
 Tags: {tags.join(', ')}
 Summary: {summary}
-Context: {contextSummary}
-Data Sources: {dataSources descriptions}
-Inputs: {input descriptions}
-Outputs: {output descriptions}
+Context: {contextSummary}           ← AI summary from context.md (max 2,000 chars)
+Data Sources: {dataSources[].description joined}
+Inputs: {inputs[].description joined}
+Outputs: {outputs[].description joined}
 ```
+
+`context.md` uploaded by the client is an AI-generated summary of why the component was built (not raw chat history). This makes it ideal for embedding — it captures intent and use case in concise natural language.
 
 This composite text is embedded via OpenAI `text-embedding-3-small` (1536 dimensions).
 
@@ -791,18 +869,28 @@ const boss = new PgBoss({
 // Review job
 boss.work('review-component', { teamConcurrency: 5 }, async (job) => {
   const { uploadId } = job.data
-  // Load upload record, fetch files from R2, run pipeline
-  await runPipeline(ctx, (progress) => {
-    // Update upload record with progress (for SSE polling)
+  const upload = await getUpload(uploadId)
+  const files = await storage.getComponentFiles(upload.storageKey)
+  const ctx: PipelineContext = { uploadId, manifest: upload.manifest, files, previousResults: [] }
+
+  await runPipeline(ctx, async (progress) => {
+    // Update upload record + notify SSE listeners via pg_notify
     await updateUploadProgress(uploadId, progress)
+    await db.execute(sql`SELECT pg_notify(${`upload:${uploadId}`}, ${JSON.stringify(progress)})`)
   })
 })
 
-// Cleanup job (periodic)
-boss.schedule('cleanup-failed-uploads', '0 3 * * *', {})  // Daily at 3 AM
+// Maintenance jobs (periodic)
+boss.schedule('cleanup-failed-uploads', '0 3 * * *', {})  // Daily at 3 AM — prune R2 + DB
+boss.schedule('create-partition', '0 0 25 * *', {})       // Monthly: create next month's partition
+boss.schedule('drop-old-partitions', '0 1 1 * *', {})     // Monthly: drop partitions > 12 months
 ```
 
-`teamConcurrency: 5` means across all worker instances, at most 5 review pipelines run simultaneously. This prevents overwhelming the LLM API rate limits.
+**`teamConcurrency: 5` — calibrated to LLM rate limits:**
+- Claude claude-sonnet-4-6 rate limit: ~60 RPM (Anthropic default)
+- Each pipeline: ~3 LLM calls, each taking 10-30s → ~2 RPM per pipeline
+- 5 concurrent pipelines × 2 RPM = 10 RPM — well under 60 RPM limit, with headroom for retries
+- Increase to 15-20 if on a higher Anthropic tier
 
 ---
 
@@ -810,45 +898,87 @@ boss.schedule('cleanup-failed-uploads', '0 3 * * *', {})  // Daily at 3 AM
 
 ### SSE Stream for Review Progress
 
+**Implementation: Postgres LISTEN/NOTIFY** (not polling)
+
+The worker publishes a notification after each stage update. The SSE handler holds an open Postgres connection and LISTENS on a per-upload channel. No polling loops — purely event-driven.
+
 ```typescript
-// GET /api/components/upload/:id/stream
+// Worker: after each stage completes, notify the SSE channel
+// packages/pipeline/src/runner.ts
+async function notifyProgress(db: Pool, uploadId: string, progress: StageProgress) {
+  await db.query(
+    `SELECT pg_notify($1, $2)`,
+    [`upload:${uploadId}`, JSON.stringify(progress)]
+  )
+}
+
+// API: SSE endpoint subscribes via LISTEN
+// apps/api/src/routes/uploads.ts
 app.get('/api/components/upload/:id/stream', authMiddleware, async (c) => {
   const uploadId = c.req.param('id')
+  const upload = await getUpload(uploadId)
+
+  // Verify ownership
+  if (upload.authorId !== c.get('user').id) throw new HTTPException(403)
+
+  // If already terminal, return immediately (no SSE connection needed)
+  if (upload.status === 'approved' || upload.status === 'rejected') {
+    return c.json({ status: upload.status, componentId: upload.componentId,
+                    rejectionReasons: upload.rejectionReasons })
+  }
 
   return streamSSE(c, async (stream) => {
-    // Poll upload record for progress changes
-    let lastStage = ''
-    while (true) {
-      const upload = await getUpload(uploadId)
-      if (upload.currentStage !== lastStage) {
-        lastStage = upload.currentStage
-        await stream.writeSSE({
-          event: 'stage',
-          data: JSON.stringify({
-            stage: upload.currentStage,
-            status: upload.status,
-            completedStages: upload.completedStages,
-          })
+    // Acquire a dedicated pg connection for LISTEN (not from the query pool)
+    const pgClient = await pgPool.connect()
+    try {
+      await pgClient.query(`LISTEN "upload:${uploadId}"`)
+
+      // Send current state immediately so client doesn't wait for first notification
+      await stream.writeSSE({
+        event: 'stage',
+        data: JSON.stringify({
+          stage: upload.currentStage,
+          status: 'in_progress',
+          completedStages: upload.completedStages,
         })
-      }
-      if (upload.status === 'approved' || upload.status === 'rejected') {
-        await stream.writeSSE({
-          event: 'complete',
-          data: JSON.stringify({
-            status: upload.status,
-            componentId: upload.componentId,
-            rejectionReasons: upload.rejectionReasons,
+      })
+
+      // SSE connection timeout: max 10 minutes (pipeline shouldn't take longer)
+      const timeout = setTimeout(() => pgClient.release(), 10 * 60 * 1000)
+
+      pgClient.on('notification', async (msg) => {
+        const progress = JSON.parse(msg.payload!)
+        await stream.writeSSE({ event: 'stage', data: JSON.stringify(progress) })
+
+        if (progress.status === 'approved' || progress.status === 'rejected') {
+          await stream.writeSSE({
+            event: 'complete',
+            data: JSON.stringify(progress)
           })
-        })
-        break
-      }
-      await new Promise(r => setTimeout(r, 2000))  // Poll every 2s
+          clearTimeout(timeout)
+          pgClient.release()
+        }
+      })
+
+      // Keep SSE open until client disconnects or pipeline completes
+      await stream.close()
+    } finally {
+      pgClient.release()
     }
   })
 })
 ```
 
-**Fallback:** `GET /api/components/upload/:id/status` for clients that can't use SSE.
+**Why LISTEN/NOTIFY over polling:**
+- Polling 2s per client × 100 concurrent users = 50 DB queries/second just for progress updates. Pure noise.
+- LISTEN/NOTIFY is event-driven: 0 queries per second at rest, 1 notification per stage transition regardless of connected clients.
+- Postgres LISTEN uses a dedicated long-lived connection (not a query pool slot) — the dedicated `pgPool` (separate from Drizzle's pool) is sized for concurrent SSE connections.
+
+**SSE connection rate limiting:** Max 3 concurrent SSE connections per user (checked in middleware before establishing LISTEN). Prevents a misbehaving client from exhausting the dedicated pg connection pool.
+
+**`pgPool` sizing:** Dedicated pool for LISTEN connections only. Size = `MAX_SSE_CONNECTIONS_PER_USER × expected_concurrent_users` (e.g., 3 × 30 users = 90 connections, well within Neon pooler limits via PgBouncer).
+
+**Fallback:** `GET /api/components/upload/:id/status` for clients that can't use SSE (polls on-demand at their own rate).
 
 ---
 
@@ -985,10 +1115,10 @@ R2_ACCOUNT_ID=
 R2_ACCESS_KEY_ID=
 R2_SECRET_ACCESS_KEY=
 R2_BUCKET_NAME=
-OPENAI_API_KEY=          # For embeddings
-ANTHROPIC_API_KEY=       # For review LLM (or OPENAI_API_KEY for GPT-4o)
-LLM_PROVIDER=            # 'anthropic' or 'openai'
-LLM_MODEL=               # 'claude-sonnet-4-6' or 'gpt-4o'
+ANTHROPIC_API_KEY=       # For all LLM calls (security, quality, cataloging)
+OPENAI_API_KEY=          # For embeddings only (text-embedding-3-small)
+LLM_QUALITY_MODEL=       # 'claude-sonnet-4-6' (security + quality review)
+LLM_CATALOG_MODEL=       # 'claude-haiku-4-5-20251001' (cataloging)
 EMBEDDING_MODEL=         # 'text-embedding-3-small'
 ```
 
