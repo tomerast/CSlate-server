@@ -1,0 +1,30 @@
+# Worktrees
+.worktrees/
+
+# Dependencies
+node_modules/
+
+# Environment
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+
+# Drizzle migrations (generated)
+# Keep tracked — generated but should be committed
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

@@ -1,0 +1,32 @@
+{
+  "name": "cslate-server",
+  "private": true,
+  "version": "0.0.1",
+  "packageManager": "pnpm@10.11.0",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "dev": "bash scripts/dev.sh",
+    "build": "turbo build",
+    "test": "turbo test",
+    "test:integration": "turbo test:integration",
+    "test:pipeline": "pnpm --filter=@cslate/pipeline test",
+    "test:watch": "turbo test --watch",
+    "lint": "turbo lint",
+    "db:generate": "pnpm --filter=@cslate/db db:generate",
+    "db:migrate": "pnpm --filter=@cslate/db db:migrate",
+    "db:seed": "tsx scripts/seed-dev.ts",
+    "db:studio": "pnpm --filter=@cslate/db db:studio"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0",
+    "vitest": "^2.1.0",
+    "dotenv": "^16.4.0",
+    "postgres": "^3.4.0"
+  }
+}

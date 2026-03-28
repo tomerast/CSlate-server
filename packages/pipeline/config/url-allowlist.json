@@ -1,0 +1,23 @@
+{
+  "domains": [
+    "api.openai.com",
+    "api.anthropic.com",
+    "api.github.com",
+    "api.stripe.com",
+    "api.sendgrid.com",
+    "api.twilio.com",
+    "maps.googleapis.com",
+    "api.mapbox.com",
+    "api.weather.gov",
+    "openweathermap.org",
+    "api.exchangerate-api.com",
+    "restcountries.com",
+    "pokeapi.co",
+    "jsonplaceholder.typicode.com",
+    "api.coindesk.com",
+    "api.frankfurter.app",
+    "api.nasa.gov",
+    "data.jsdelivr.com",
+    "registry.npmjs.org"
+  ]
+}
