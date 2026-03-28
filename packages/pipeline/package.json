@@ -1,0 +1,26 @@
+{
+  "name": "@cslate/pipeline",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs --dts",
+    "dev": "tsup src/index.ts --format cjs --dts --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@cslate/db": "workspace:*",
+    "@cslate/llm": "workspace:*",
+    "@cslate/storage": "workspace:*",
+    "zod": "^3.24.0",
+    "drizzle-orm": "^0.40.0",
+    "typescript": "^5.7.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "vitest": "^2.1.0",
+    "@types/node": "^22.0.0"
+  }
+}

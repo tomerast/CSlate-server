@@ -1,0 +1,22 @@
+{
+  "blocked": [
+    { "pattern": "fetch(", "message": "Direct fetch() calls are not allowed. Use bridge.fetch() instead.", "allowExceptions": ["bridge.fetch("] },
+    { "pattern": "XMLHttpRequest", "message": "XMLHttpRequest is not allowed. Use bridge.fetch() instead." },
+    { "pattern": "new WebSocket(", "message": "WebSocket connections are not allowed." },
+    { "pattern": "navigator.sendBeacon", "message": "navigator.sendBeacon is not allowed." },
+    { "pattern": "new EventSource(", "message": "EventSource connections are not allowed. Use bridge.subscribe() instead.", "allowExceptions": ["bridge.subscribe("] },
+    { "pattern": "window.fetch", "message": "window.fetch is not allowed. Use bridge.fetch() instead." },
+    { "pattern": "globalThis.fetch", "message": "globalThis.fetch is not allowed. Use bridge.fetch() instead." },
+    { "pattern": "eval(", "message": "eval() is not allowed." },
+    { "pattern": "new Function(", "message": "new Function() is not allowed." },
+    { "pattern": "document.cookie", "message": "document.cookie access is not allowed." },
+    { "pattern": "localStorage", "message": "localStorage is not allowed. Use bridge.getConfig() for persistent config." },
+    { "pattern": "sessionStorage", "message": "sessionStorage is not allowed." },
+    { "pattern": "require(\"child_process\")", "message": "child_process is not allowed." },
+    { "pattern": "require('child_process')", "message": "child_process is not allowed." },
+    { "pattern": "require(\"fs\")", "message": "fs module is not allowed." },
+    { "pattern": "require('fs')", "message": "fs module is not allowed." },
+    { "pattern": "import(\"electron\")", "message": "Direct electron imports are not allowed." },
+    { "pattern": "import('electron')", "message": "Direct electron imports are not allowed." }
+  ]
+}

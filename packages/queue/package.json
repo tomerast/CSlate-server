@@ -1,0 +1,19 @@
+{
+  "name": "@cslate/queue",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs --dts",
+    "dev": "tsup src/index.ts --format cjs --dts --watch"
+  },
+  "dependencies": {
+    "pg-boss": "^10.1.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0"
+  }
+}
