@@ -1,227 +1,313 @@
-# Ralph Loop: Admin Cost Control + Rate Limiting
+# Ralph Loop: Phase 1 — Static Analysis
 
 ## Mission
 
-Build the admin-configurable cost control and rate limiting system for the CSlate reviewer agent. Admins can increase/decrease review throughput and spending via a config table. Uses pg-boss queue with throttled enqueueing.
+Build the deterministic static analysis phase for the CSlate reviewer agent. This runs BEFORE any LLM calls. It uses TypeScript AST parsing, regex pattern matching, and type checking to surface obvious issues cheaply. Critical findings here short-circuit the entire pipeline — no LLM spend needed.
 
 ## Scope
 
-Build DB schema in `packages/db/src/schema/reviewer-config.ts`, config/cost logic in `packages/pipeline/src/reviewer-agent/config/`, and rate-limited enqueue in `packages/queue/src/reviewer-enqueue.ts`.
+Build everything in `packages/pipeline/src/reviewer-agent/static/`.
 
 ## Key Files
 
 **Create:**
-- `packages/db/src/schema/reviewer-config.ts` — Drizzle schema for `reviewer_config` + `review_costs` tables
-- Update `packages/db/src/schema/index.ts` to export new schemas
-- `packages/pipeline/src/reviewer-agent/config/index.ts` — `getReviewerConfig()` + `updateReviewerConfig()`
-- `packages/pipeline/src/reviewer-agent/config/cost-tracker.ts` — `trackReviewCost()`, `getTodayLLMCost()`
-- `packages/pipeline/src/reviewer-agent/config/rate-limiter.ts` — `enqueueReviewWithLimits()`
-- `packages/queue/src/reviewer-enqueue.ts` — Rate-limited enqueue wrapper
-- Tests for each module
+- `packages/pipeline/src/reviewer-agent/static/index.ts` — `runStaticAnalysis()` entry point
+- `packages/pipeline/src/reviewer-agent/static/ast-parser.ts` — AST-based code structure extraction
+- `packages/pipeline/src/reviewer-agent/static/pattern-matcher.ts` — Regex security pattern matching
+- `packages/pipeline/src/reviewer-agent/static/type-checker.ts` — TypeScript compiler API type checking
+- `packages/pipeline/src/reviewer-agent/static/dependency-analyzer.ts` — Import graph + circular dep detection
+- Tests in `packages/pipeline/src/reviewer-agent/static/__tests__/`
 
-**Read (do NOT modify):**
-- `packages/pipeline/src/reviewer-agent/types.ts` — ReviewerConfig, DEFAULT_REVIEWER_CONFIG
-- `packages/db/src/schema/uploads.ts` — Drizzle schema pattern to follow (use same column types)
-- `packages/db/src/client.ts` — `type Db = ReturnType<typeof getDb>`
-- `packages/queue/src/client.ts` — `getBoss()` pg-boss singleton
-- `packages/queue/src/jobs.ts` — `JOB_NAMES`, `enqueueReviewJob` pattern
+**Read for reference (do NOT modify):**
+- `packages/pipeline/src/reviewer-agent/types.ts` — ALL shared types (StaticAnalysisResult, StaticFinding, CodeStructureMap, FileStructure, BridgeCallInfo, etc.)
+- `packages/pipeline/src/stages/2-security-scan.ts` — Existing security patterns to migrate
+- `packages/pipeline/src/stages/4-quality-review.ts` — Existing quality checks to reference
+- `packages/pipeline/src/stages/5-test-render.ts` — Existing tsc wrapper to reference
 
-## DB Schema (reviewer-config.ts)
+## First Step: Install Dependencies
 
-Follow the EXACT Drizzle pattern from `packages/db/src/schema/uploads.ts`:
-
-```typescript
-import { pgTable, text, integer, real, boolean, jsonb, timestamp } from 'drizzle-orm/pg-core'
-
-// Singleton config table — always has exactly one row with id='default'
-export const reviewerConfig = pgTable('reviewer_config', {
-  id: text('id').primaryKey().default('default'),
-  maxConcurrentReviews: integer('max_concurrent_reviews').default(5),
-  maxReviewsPerHour: integer('max_reviews_per_hour').default(30),
-  reviewThrottleSeconds: integer('review_throttle_seconds').default(10),
-  pauseReviews: boolean('pause_reviews').default(false),
-  maxLlmCostPerDay: real('max_llm_cost_per_day').default(50),
-  maxExpertAgentIterations: integer('max_expert_agent_iterations').default(12),
-  maxRedTeamIterations: integer('max_red_team_iterations').default(10),
-  maxJudgeIterations: integer('max_judge_iterations').default(12),
-  qualityThreshold: integer('quality_threshold').default(70),
-  maxWarnings: integer('max_warnings').default(5),
-  modelOverrides: jsonb('model_overrides').default({}),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-})
-
-export type ReviewerConfigRow = typeof reviewerConfig.$inferSelect
-
-// Per-review cost tracking
-export const reviewCosts = pgTable('review_costs', {
-  id: text('id').primaryKey(),
-  uploadId: text('upload_id').notNull(),
-  phase: text('phase').notNull(),
-  model: text('model').notNull(),
-  inputTokens: integer('input_tokens').notNull(),
-  outputTokens: integer('output_tokens').notNull(),
-  estimatedCost: real('estimated_cost').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-})
-
-export type ReviewCostRow = typeof reviewCosts.$inferSelect
-export type NewReviewCostRow = typeof reviewCosts.$inferInsert
+```bash
+pnpm add @typescript-eslint/typescript-estree --filter @cslate/pipeline
+pnpm install
 ```
 
-## Interface Contracts
+## Interface Contract
 
 ```typescript
-import type { Db } from '@cslate/db'
-import { ReviewerConfig } from '../types'
+// packages/pipeline/src/reviewer-agent/static/index.ts
+import { StaticAnalysisResult } from '../types'
 
-// Load config from DB (with DEFAULT_REVIEWER_CONFIG fallback if row missing)
-export async function getReviewerConfig(db: Db): Promise<ReviewerConfig>
-
-// Update config (admin API)
-export async function updateReviewerConfig(db: Db, updates: Partial<ReviewerConfig>): Promise<ReviewerConfig>
-
-// Track cost after each phase
-export async function trackReviewCost(
-  db: Db,
-  uploadId: string,
-  phase: string,
-  model: string,
-  tokens: { input: number; output: number },
-): Promise<void>
-
-// Get today's total LLM cost (UTC day)
-export async function getTodayLLMCost(db: Db): Promise<number>
-
-// Count reviews enqueued in last hour
-export async function countReviewsInLastHour(db: Db): Promise<number>
+export async function runStaticAnalysis(
+  files: Record<string, string>,   // filename → file content
+  manifest: Record<string, unknown>,
+): Promise<StaticAnalysisResult>
 ```
 
-## Cost Estimation (cost-tracker.ts)
+## Implementation: ast-parser.ts
+
+Use `@typescript-eslint/typescript-estree` to parse files and extract `FileStructure`:
 
 ```typescript
-const COST_PER_1K_TOKENS: Record<string, { input: number; output: number }> = {
-  'claude-sonnet-4-6': { input: 0.003, output: 0.015 },
-  'claude-haiku-4-5-20251001': { input: 0.0008, output: 0.004 },
-  'claude-opus-4-6': { input: 0.015, output: 0.075 },
+import { parse } from '@typescript-eslint/typescript-estree'
+import type { FileStructure, ExportInfo, ImportInfo, FunctionInfo, BridgeCallInfo, DOMAccessInfo, DynamicExprInfo, CodeStructureMap } from '../types'
+
+export function parseFileStructure(filename: string, content: string): FileStructure {
+  let ast: any
+  try {
+    ast = parse(content, { jsx: true, tolerant: true, range: true, loc: true })
+  } catch {
+    return { exports: [], imports: [], functions: [], classes: [], bridgeCalls: [], domAccess: [], dynamicExpressions: [] }
+  }
+
+  const structure: FileStructure = {
+    exports: [],
+    imports: [],
+    functions: [],
+    classes: [],
+    bridgeCalls: [],
+    domAccess: [],
+    dynamicExpressions: [],
+  }
+
+  // Walk AST to extract: ImportDeclaration, ExportNamedDeclaration, ExportDefaultDeclaration,
+  // FunctionDeclaration, ClassDeclaration, CallExpression (for bridge.* calls),
+  // MemberExpression (for window.*, document.*, globalThis.*),
+  // CallExpression (for eval(), new Function())
+  // ...
+
+  return structure
 }
 
-export function estimateCost(model: string, tokens: { input: number; output: number }): number {
-  const rates = COST_PER_1K_TOKENS[model] ?? COST_PER_1K_TOKENS['claude-sonnet-4-6']
-  return (tokens.input / 1000) * rates.input + (tokens.output / 1000) * rates.output
-}
+export function buildCodeStructureMap(files: Record<string, string>): CodeStructureMap {
+  const fileStructures: Record<string, FileStructure> = {}
+  const dependencyGraph: Record<string, string[]> = {}
 
-export async function trackReviewCost(
-  db: Db, uploadId: string, phase: string, model: string,
-  tokens: { input: number; output: number },
-): Promise<void> {
-  await db.insert(reviewCosts).values({
-    id: crypto.randomUUID(),
-    uploadId,
-    phase,
-    model,
-    inputTokens: tokens.input,
-    outputTokens: tokens.output,
-    estimatedCost: estimateCost(model, tokens),
-    createdAt: new Date(),
-  })
-}
+  for (const [filename, content] of Object.entries(files)) {
+    const structure = parseFileStructure(filename, content)
+    fileStructures[filename] = structure
+    // Build dep graph from imports
+    dependencyGraph[filename] = structure.imports.map(i => i.source)
+  }
 
-export async function getTodayLLMCost(db: Db): Promise<number> {
-  const todayUtc = new Date()
-  todayUtc.setUTCHours(0, 0, 0, 0)
-  const result = await db
-    .select({ total: sum(reviewCosts.estimatedCost) })
-    .from(reviewCosts)
-    .where(gte(reviewCosts.createdAt, todayUtc))
-  return Number(result[0]?.total ?? 0)
+  // Detect circular dependencies via DFS
+  const circularDependencies = detectCircularDeps(dependencyGraph)
+
+  // Find exports not imported anywhere
+  const unusedExports = findUnusedExports(fileStructures)
+
+  return { files: fileStructures, dependencyGraph, unusedExports, circularDependencies }
 }
 ```
 
-## Rate Limiter (rate-limiter.ts + packages/queue/src/reviewer-enqueue.ts)
+## Implementation: pattern-matcher.ts
 
 ```typescript
-// packages/queue/src/reviewer-enqueue.ts
-import { getBoss } from './client'
-import type { ReviewerConfig } from '@cslate/pipeline' // or from the types
+import type { StaticFinding } from '../types'
 
-export async function enqueueReviewWithLimits(
-  data: { uploadId: string },
-  config: ReviewerConfig,
-  recentCount: number,
-  todayCost: number,
-): Promise<string | null> {
-  const boss = await getBoss()
-
-  // 1. Kill switch
-  if (config.pauseReviews) {
-    throw new Error('Reviews are paused by admin')
-  }
-
-  // 2. Hourly rate limit — defer to next available slot
-  if (recentCount >= config.maxReviewsPerHour) {
-    const delaySeconds = Math.ceil(3600 / config.maxReviewsPerHour)
-    return boss.send('review-component', data, { startAfterSeconds: delaySeconds })
-  }
-
-  // 3. Daily cost cap — defer to tomorrow midnight UTC
-  if (todayCost >= config.maxLLMCostPerDay) {
-    const now = new Date()
-    const tomorrowUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1))
-    const delaySeconds = Math.ceil((tomorrowUtc.getTime() - now.getTime()) / 1000)
-    return boss.send('review-component', data, { startAfterSeconds: delaySeconds })
-  }
-
-  // 4. Throttled enqueue
-  return boss.sendThrottled('review-component', data, {}, config.reviewThrottleSeconds)
-}
-```
-
-## getReviewerConfig (index.ts)
-
-```typescript
-import { DEFAULT_REVIEWER_CONFIG } from '../types'
-
-export async function getReviewerConfig(db: Db): Promise<ReviewerConfig> {
-  const rows = await db.select().from(reviewerConfig).where(eq(reviewerConfig.id, 'default'))
-  if (rows.length === 0) return DEFAULT_REVIEWER_CONFIG
-
-  const row = rows[0]
-  return {
-    maxConcurrentReviews: row.maxConcurrentReviews ?? DEFAULT_REVIEWER_CONFIG.maxConcurrentReviews,
-    maxReviewsPerHour: row.maxReviewsPerHour ?? DEFAULT_REVIEWER_CONFIG.maxReviewsPerHour,
-    reviewThrottleSeconds: row.reviewThrottleSeconds ?? DEFAULT_REVIEWER_CONFIG.reviewThrottleSeconds,
-    pauseReviews: row.pauseReviews ?? DEFAULT_REVIEWER_CONFIG.pauseReviews,
-    maxLLMCostPerDay: row.maxLlmCostPerDay ?? DEFAULT_REVIEWER_CONFIG.maxLLMCostPerDay,
-    maxExpertAgentIterations: row.maxExpertAgentIterations ?? DEFAULT_REVIEWER_CONFIG.maxExpertAgentIterations,
-    maxRedTeamIterations: row.maxRedTeamIterations ?? DEFAULT_REVIEWER_CONFIG.maxRedTeamIterations,
-    maxJudgeIterations: row.maxJudgeIterations ?? DEFAULT_REVIEWER_CONFIG.maxJudgeIterations,
-    qualityThreshold: row.qualityThreshold ?? DEFAULT_REVIEWER_CONFIG.qualityThreshold,
-    maxWarnings: row.maxWarnings ?? DEFAULT_REVIEWER_CONFIG.maxWarnings,
-    modelOverrides: (row.modelOverrides as ReviewerConfig['modelOverrides']) ?? DEFAULT_REVIEWER_CONFIG.modelOverrides,
-  }
+interface PatternDef {
+  pattern: RegExp
+  message: string
+  dimension: number
+  severity: 'critical' | 'warning' | 'info'
+  analyzer: string
 }
 
-export async function updateReviewerConfig(db: Db, updates: Partial<ReviewerConfig>): Promise<ReviewerConfig> {
-  await db.insert(reviewerConfig)
-    .values({ id: 'default', ...mapToRow(updates), updatedAt: new Date() })
-    .onConflictDoUpdate({
-      target: reviewerConfig.id,
-      set: { ...mapToRow(updates), updatedAt: new Date() },
+const CRITICAL_PATTERNS: PatternDef[] = [
+  { pattern: /\beval\s*\(/,                    message: 'eval() — dynamic code execution', dimension: 2, severity: 'critical', analyzer: 'pattern-matcher' },
+  { pattern: /new\s+Function\s*\(/,             message: 'Function constructor — dynamic code execution', dimension: 2, severity: 'critical', analyzer: 'pattern-matcher' },
+  { pattern: /\.__proto__/,                     message: 'Prototype pollution via __proto__', dimension: 2, severity: 'critical', analyzer: 'pattern-matcher' },
+  { pattern: /constructor\.prototype/,          message: 'Prototype pollution via constructor.prototype', dimension: 2, severity: 'critical', analyzer: 'pattern-matcher' },
+  { pattern: /dangerouslySetInnerHTML/,          message: 'XSS risk: dangerouslySetInnerHTML', dimension: 2, severity: 'critical', analyzer: 'pattern-matcher' },
+  { pattern: /window\.require\s*\(/,            message: 'window.require — Node.js access attempt', dimension: 2, severity: 'critical', analyzer: 'pattern-matcher' },
+  { pattern: /\bprocess\.env\b/,               message: 'process.env access — blocked in sandbox', dimension: 3, severity: 'critical', analyzer: 'pattern-matcher' },
+  { pattern: /(?:password|secret|api[_-]?key|token|auth)\s*[=:]\s*["'][^"']{8,}["']/i, message: 'Hardcoded credential', dimension: 3, severity: 'critical', analyzer: 'pattern-matcher' },
+  { pattern: /AKIA[0-9A-Z]{16}/,               message: 'AWS Access Key', dimension: 3, severity: 'critical', analyzer: 'pattern-matcher' },
+  { pattern: /sk-[a-zA-Z0-9]{32,}/,            message: 'API Key (sk- prefix)', dimension: 3, severity: 'critical', analyzer: 'pattern-matcher' },
+  { pattern: /ghp_[a-zA-Z0-9]{36}/,            message: 'GitHub Personal Access Token', dimension: 3, severity: 'critical', analyzer: 'pattern-matcher' },
+  { pattern: /-----BEGIN.*PRIVATE KEY-----/,    message: 'Private key in source', dimension: 3, severity: 'critical', analyzer: 'pattern-matcher' },
+  { pattern: /\batob\s*\(|btoa\s*\(/,          message: 'Base64 encoding — potential obfuscation', dimension: 1, severity: 'critical', analyzer: 'pattern-matcher' },
+]
+
+const WARNING_PATTERNS: PatternDef[] = [
+  { pattern: /console\.(log|debug|info)\s*\(/, message: 'Console output in component', dimension: 8, severity: 'warning', analyzer: 'pattern-matcher' },
+  { pattern: /\/\/\s*(TODO|FIXME|HACK|XXX)/,   message: 'Unresolved TODO/FIXME comment', dimension: 8, severity: 'warning', analyzer: 'pattern-matcher' },
+  { pattern: /localStorage\.|sessionStorage\./, message: 'Storage API — blocked in sandbox', dimension: 2, severity: 'warning', analyzer: 'pattern-matcher' },
+  { pattern: /document\.cookie/,               message: 'Cookie access — blocked in sandbox', dimension: 2, severity: 'warning', analyzer: 'pattern-matcher' },
+  { pattern: /\bfetch\s*\(/,                   message: 'Direct fetch() — use bridge.fetch() instead', dimension: 2, severity: 'warning', analyzer: 'pattern-matcher' },
+  { pattern: /new\s+WebSocket\s*\(/,           message: 'WebSocket — use bridge.subscribe() instead', dimension: 2, severity: 'warning', analyzer: 'pattern-matcher' },
+]
+
+export function runPatternMatching(files: Record<string, string>): {
+  criticalFindings: StaticFinding[]
+  warnings: StaticFinding[]
+} {
+  const criticalFindings: StaticFinding[] = []
+  const warnings: StaticFinding[] = []
+
+  for (const [filename, content] of Object.entries(files)) {
+    const lines = content.split('\n')
+    lines.forEach((line, idx) => {
+      const lineNumber = idx + 1
+      // Skip comment lines for some patterns
+      const isComment = line.trim().startsWith('//')
+
+      for (const def of CRITICAL_PATTERNS) {
+        if (isComment && def.dimension !== 3) continue  // Still check credentials in comments
+        if (def.pattern.test(line)) {
+          criticalFindings.push({
+            analyzer: def.analyzer,
+            dimension: def.dimension,
+            severity: def.severity,
+            file: filename,
+            line: lineNumber,
+            pattern: def.pattern.toString(),
+            message: def.message,
+            evidence: line.trim(),
+          })
+        }
+      }
+
+      for (const def of WARNING_PATTERNS) {
+        if (def.pattern.test(line)) {
+          warnings.push({
+            analyzer: def.analyzer,
+            dimension: def.dimension,
+            severity: def.severity,
+            file: filename,
+            line: lineNumber,
+            pattern: def.pattern.toString(),
+            message: def.message,
+            evidence: line.trim(),
+          })
+        }
+      }
     })
-  return getReviewerConfig(db)
+  }
+
+  return { criticalFindings, warnings }
+}
+```
+
+## Implementation: type-checker.ts
+
+```typescript
+import ts from 'typescript'
+import type { TypeCheckResult, TypeCheckError } from '../types'
+
+export function runTypeCheck(files: Record<string, string>): TypeCheckResult {
+  // Create in-memory source files
+  const sourceFiles = new Map<string, string>()
+  for (const [filename, content] of Object.entries(files)) {
+    if (filename.endsWith('.ts') || filename.endsWith('.tsx')) {
+      sourceFiles.set('/' + filename, content)
+    }
+  }
+
+  // Add bridge type stub so bridge.fetch etc. don't cause "not defined" errors
+  sourceFiles.set('/bridge.d.ts', `
+    declare const bridge: {
+      fetch(sourceId: string, params?: Record<string, unknown>): Promise<unknown>
+      subscribe(sourceId: string, callback: (data: unknown) => void): () => void
+      getConfig(key: string): string | undefined
+    }
+  `)
+
+  const host = ts.createCompilerHost({})
+  const origGetSourceFile = host.getSourceFile.bind(host)
+  host.getSourceFile = (fileName, languageVersion) => {
+    const content = sourceFiles.get(fileName)
+    if (content !== undefined) {
+      return ts.createSourceFile(fileName, content, languageVersion, true)
+    }
+    return origGetSourceFile(fileName, languageVersion)
+  }
+  host.fileExists = (f) => sourceFiles.has(f) || ts.sys.fileExists(f)
+
+  const program = ts.createProgram(
+    [...sourceFiles.keys()].filter(f => !f.endsWith('.d.ts')),
+    { strict: true, jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2020, moduleResolution: ts.ModuleResolutionKind.Bundler, noEmit: true },
+    host,
+  )
+
+  const allDiagnostics = ts.getPreEmitDiagnostics(program)
+  const errors: TypeCheckError[] = []
+
+  allDiagnostics.forEach(diagnostic => {
+    if (diagnostic.file && diagnostic.start !== undefined) {
+      const { line, character } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
+      errors.push({
+        file: diagnostic.file.fileName.replace('/', ''),
+        line: line + 1,
+        column: character + 1,
+        code: `TS${diagnostic.code}`,
+        message: ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
+      })
+    }
+  })
+
+  return { success: errors.length === 0, errors }
+}
+```
+
+## Implementation: index.ts
+
+```typescript
+export async function runStaticAnalysis(
+  files: Record<string, string>,
+  manifest: Record<string, unknown>,
+): Promise<StaticAnalysisResult> {
+  const startTime = Date.now()
+
+  const [codeStructure, { criticalFindings, warnings }, typeCheckResult] = await Promise.all([
+    Promise.resolve(buildCodeStructureMap(files)),
+    Promise.resolve(runPatternMatching(files)),
+    Promise.resolve(runTypeCheck(files)),
+  ])
+
+  // Promote certain TypeScript errors to critical findings
+  for (const error of typeCheckResult.errors) {
+    if (['TS2345', 'TS2322', 'TS2551'].includes(error.code)) {
+      criticalFindings.push({
+        analyzer: 'typescript',
+        dimension: 6,
+        severity: 'critical',
+        file: error.file,
+        line: error.line,
+        pattern: error.code,
+        message: error.message,
+        evidence: `TypeScript error ${error.code} at ${error.file}:${error.line}:${error.column}`,
+      })
+    }
+  }
+
+  return { criticalFindings, warnings, codeStructure, typeCheckResult, duration: Date.now() - startTime }
 }
 ```
 
 ## TDD Approach
 
-1. **cost-tracker.test.ts**: Test `estimateCost` formula with known values. Test `getTodayLLMCost` returns sum only for today.
-2. **index.test.ts**: Test `getReviewerConfig` with empty DB → returns DEFAULT_REVIEWER_CONFIG. Test `updateReviewerConfig` stores and returns updated config.
-3. **rate-limiter.test.ts**: Mock pg-boss → test pause throws, hourly limit defers, cost cap defers, normal path uses sendThrottled.
+1. **pattern-matcher.test.ts**: 
+   - Test each critical pattern with matching code → verify finding produced
+   - Test non-matching code → verify no finding
+   - Test bridge.fetch() is NOT flagged as direct fetch
 
-Test command: `npx vitest run packages/pipeline/src/reviewer-agent/config/__tests__/ --reporter verbose`
+2. **ast-parser.test.ts**:
+   - Test with `export function foo() {}` → exports contains foo
+   - Test with `bridge.fetch('sourceId')` → bridgeCalls contains it with isDynamic: false
+   - Test with `bridge.fetch(dynamicVar)` → bridgeCalls contains it with isDynamic: true
+
+3. **type-checker.test.ts**:
+   - Test with valid TypeScript → success: true, errors: []
+   - Test with `const x: string = 42` → error TS2322 detected
+
+4. **index.test.ts**:
+   - Integration: run against mock component with eval() → criticalFindings.length > 0
+   - Performance: 5 typical files complete in < 5 seconds
+
+Test command: `npx vitest run packages/pipeline/src/reviewer-agent/static/__tests__/ --reporter verbose`
 
 ## When You're Done
 
-DB schema defined, `getReviewerConfig` returns defaults when DB empty, `updateReviewerConfig` persists changes, cost tracking accumulates correctly, rate limiting logic correct for all 4 cases (pause, hourly, daily, throttled), tests pass.
+`runStaticAnalysis` returns complete `StaticAnalysisResult`, critical patterns detected, TypeScript errors surfaced, tests pass.
 
-<promise>COST CONTROL COMPLETE</promise>
+<promise>STATIC ANALYSIS COMPLETE</promise>
