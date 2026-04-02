@@ -1,278 +1,227 @@
-# Ralph Loop: Learning System + DB Schema
+# Ralph Loop: Admin Cost Control + Rate Limiting
 
 ## Mission
 
-Build the continuous learning system for the CSlate reviewer agent. This includes the Drizzle ORM database schemas, the knowledge base loader, outcome recorder, standards distillation job, and knowledge injector. The system makes the reviewer agent improve over time by learning from review outcomes.
+Build the admin-configurable cost control and rate limiting system for the CSlate reviewer agent. Admins can increase/decrease review throughput and spending via a config table. Uses pg-boss queue with throttled enqueueing.
 
 ## Scope
 
-Build DB schemas in `packages/db/src/schema/reviewer-*.ts` and learning logic in `packages/pipeline/src/reviewer-agent/learning/`.
+Build DB schema in `packages/db/src/schema/reviewer-config.ts`, config/cost logic in `packages/pipeline/src/reviewer-agent/config/`, and rate-limited enqueue in `packages/queue/src/reviewer-enqueue.ts`.
 
 ## Key Files
 
 **Create:**
-- `packages/db/src/schema/reviewer-standards.ts`
-- `packages/db/src/schema/reviewer-patterns.ts`
-- `packages/db/src/schema/review-outcomes.ts`
-- `packages/db/src/schema/review-corrections.ts`
-- `packages/db/src/schema/reviewer-dimension-weights.ts`
-- `packages/db/src/schema/reviewer-knowledge-versions.ts`
-- Update `packages/db/src/schema/index.ts` to export all new schemas
-- `packages/pipeline/src/reviewer-agent/learning/index.ts` — `loadKnowledgeBase()` entry
-- `packages/pipeline/src/reviewer-agent/learning/outcome-recorder.ts` — `recordReviewOutcome()`
-- `packages/pipeline/src/reviewer-agent/learning/distillation.ts` — `runDistillation()` weekly job
-- `packages/pipeline/src/reviewer-agent/learning/knowledge-injector.ts` — `injectKnowledge()`
+- `packages/db/src/schema/reviewer-config.ts` — Drizzle schema for `reviewer_config` + `review_costs` tables
+- Update `packages/db/src/schema/index.ts` to export new schemas
+- `packages/pipeline/src/reviewer-agent/config/index.ts` — `getReviewerConfig()` + `updateReviewerConfig()`
+- `packages/pipeline/src/reviewer-agent/config/cost-tracker.ts` — `trackReviewCost()`, `getTodayLLMCost()`
+- `packages/pipeline/src/reviewer-agent/config/rate-limiter.ts` — `enqueueReviewWithLimits()`
+- `packages/queue/src/reviewer-enqueue.ts` — Rate-limited enqueue wrapper
 - Tests for each module
 
 **Read (do NOT modify):**
-- `packages/pipeline/src/reviewer-agent/types.ts` — LearnedStandard, PatternEntry, ReviewOutcome, ReviewCorrection, DimensionWeight, ReviewerKnowledgeBase, ReviewVerdict
-- `packages/db/src/schema/uploads.ts` — Drizzle schema pattern to follow
-- `packages/db/src/schema/pipelines.ts` — Another schema pattern example
-- `packages/db/src/client.ts` — `Db` type (`type Db = ReturnType<typeof getDb>`)
-- `packages/db/src/schema/index.ts` — Where to add new schema exports
+- `packages/pipeline/src/reviewer-agent/types.ts` — ReviewerConfig, DEFAULT_REVIEWER_CONFIG
+- `packages/db/src/schema/uploads.ts` — Drizzle schema pattern to follow (use same column types)
+- `packages/db/src/client.ts` — `type Db = ReturnType<typeof getDb>`
+- `packages/queue/src/client.ts` — `getBoss()` pg-boss singleton
+- `packages/queue/src/jobs.ts` — `JOB_NAMES`, `enqueueReviewJob` pattern
 
-## Drizzle Schema Pattern
+## DB Schema (reviewer-config.ts)
 
-Follow EXACTLY the pattern from `packages/db/src/schema/uploads.ts`:
+Follow the EXACT Drizzle pattern from `packages/db/src/schema/uploads.ts`:
 
 ```typescript
-import { pgTable, uuid, text, integer, real, boolean, jsonb, timestamp, index } from 'drizzle-orm/pg-core'
+import { pgTable, text, integer, real, boolean, jsonb, timestamp } from 'drizzle-orm/pg-core'
 
-export const reviewerStandards = pgTable('reviewer_standards', {
-  id: text('id').primaryKey(),
-  dimension: integer('dimension').notNull(),
-  rule: text('rule').notNull(),
-  rationale: text('rationale').notNull(),
-  examplesGood: jsonb('examples_good').default([]),
-  examplesBad: jsonb('examples_bad').default([]),
-  source: text('source').notNull(),            // 'manual' | 'learned'
-  confidence: real('confidence').default(50),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-  lastConfirmedAt: timestamp('last_confirmed_at', { withTimezone: true }),
-  retiredAt: timestamp('retired_at', { withTimezone: true }),
-}, (table) => [
-  index('idx_reviewer_standards_dimension').on(table.dimension),
-])
-
-export type ReviewerStandard = typeof reviewerStandards.$inferSelect
-export type NewReviewerStandard = typeof reviewerStandards.$inferInsert
-```
-
-Apply same pattern for all 6 tables.
-
-## All 6 DB Schemas
-
-### reviewer-patterns.ts
-```typescript
-export const reviewerPatterns = pgTable('reviewer_patterns', {
-  id: text('id').primaryKey(),
-  type: text('type').notNull(),          // 'approved' | 'rejected' | 'suspicious'
-  patternDesc: text('pattern_desc').notNull(),
-  regex: text('regex'),
-  dimension: integer('dimension').notNull(),
-  occurrences: integer('occurrences').notNull().default(0),
-  lastSeen: timestamp('last_seen', { withTimezone: true }).notNull().defaultNow(),
-  examples: jsonb('examples').default([]),
+// Singleton config table — always has exactly one row with id='default'
+export const reviewerConfig = pgTable('reviewer_config', {
+  id: text('id').primaryKey().default('default'),
+  maxConcurrentReviews: integer('max_concurrent_reviews').default(5),
+  maxReviewsPerHour: integer('max_reviews_per_hour').default(30),
+  reviewThrottleSeconds: integer('review_throttle_seconds').default(10),
+  pauseReviews: boolean('pause_reviews').default(false),
+  maxLlmCostPerDay: real('max_llm_cost_per_day').default(50),
+  maxExpertAgentIterations: integer('max_expert_agent_iterations').default(12),
+  maxRedTeamIterations: integer('max_red_team_iterations').default(10),
+  maxJudgeIterations: integer('max_judge_iterations').default(12),
+  qualityThreshold: integer('quality_threshold').default(70),
+  maxWarnings: integer('max_warnings').default(5),
+  modelOverrides: jsonb('model_overrides').default({}),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 })
-```
 
-### review-outcomes.ts
-```typescript
-export const reviewOutcomes = pgTable('review_outcomes', {
+export type ReviewerConfigRow = typeof reviewerConfig.$inferSelect
+
+// Per-review cost tracking
+export const reviewCosts = pgTable('review_costs', {
   id: text('id').primaryKey(),
   uploadId: text('upload_id').notNull(),
-  verdict: text('verdict').notNull(),       // 'approved' | 'rejected'
-  dimensionScores: jsonb('dimension_scores').notNull(),
-  findings: jsonb('findings').notNull(),
-  postReviewSignals: jsonb('post_review_signals'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index('idx_review_outcomes_upload').on(table.uploadId),
-  index('idx_review_outcomes_verdict').on(table.verdict),
-])
-```
-
-### review-corrections.ts
-```typescript
-export const reviewCorrections = pgTable('review_corrections', {
-  id: text('id').primaryKey(),
-  reviewId: text('review_id').notNull(),
-  findingId: text('finding_id').notNull(),
-  correctionType: text('correction_type').notNull(),  // 'false_positive' | 'false_negative' | 'severity_wrong'
-  originalSeverity: text('original_severity').notNull(),
-  originalDimension: integer('original_dimension').notNull(),
-  correctedSeverity: text('corrected_severity').notNull(),
-  correctedDimension: integer('corrected_dimension').notNull(),
-  reason: text('reason').notNull(),
-  correctedBy: text('corrected_by').notNull(),   // 'admin' | 'outcome'
+  phase: text('phase').notNull(),
+  model: text('model').notNull(),
+  inputTokens: integer('input_tokens').notNull(),
+  outputTokens: integer('output_tokens').notNull(),
+  estimatedCost: real('estimated_cost').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
-```
 
-### reviewer-dimension-weights.ts
-```typescript
-export const reviewerDimensionWeights = pgTable('reviewer_dimension_weights', {
-  id: text('id').primaryKey(),
-  dimension: integer('dimension').notNull(),
-  weight: real('weight').notNull().default(1.0),
-  strictnessLevel: text('strictness_level').notNull().default('standard'),
-  adjustedAt: timestamp('adjusted_at', { withTimezone: true }).notNull().defaultNow(),
-  reason: text('reason').notNull(),
-}, (table) => [
-  index('idx_dimension_weights_dim').on(table.dimension),
-])
-```
-
-### reviewer-knowledge-versions.ts
-```typescript
-export const reviewerKnowledgeVersions = pgTable('reviewer_knowledge_versions', {
-  id: text('id').primaryKey(),
-  version: integer('version').notNull(),
-  changeType: text('change_type').notNull(),     // 'standard_added' | 'weight_changed' | 'pattern_added'
-  changeDescription: text('change_description').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-})
+export type ReviewCostRow = typeof reviewCosts.$inferSelect
+export type NewReviewCostRow = typeof reviewCosts.$inferInsert
 ```
 
 ## Interface Contracts
 
 ```typescript
 import type { Db } from '@cslate/db'
-import { ReviewerKnowledgeBase, ReviewVerdict } from '../types'
+import { ReviewerConfig } from '../types'
 
-// Load current knowledge base from DB (with safe defaults if DB is empty)
-export async function loadKnowledgeBase(db: Db): Promise<ReviewerKnowledgeBase>
+// Load config from DB (with DEFAULT_REVIEWER_CONFIG fallback if row missing)
+export async function getReviewerConfig(db: Db): Promise<ReviewerConfig>
 
-// Record a review outcome after every review
-export async function recordReviewOutcome(db: Db, verdict: ReviewVerdict, uploadId: string): Promise<void>
+// Update config (admin API)
+export async function updateReviewerConfig(db: Db, updates: Partial<ReviewerConfig>): Promise<ReviewerConfig>
 
-// Run weekly distillation (called by pg-boss scheduled job)
-export async function runDistillation(db: Db, windowDays?: number): Promise<void>
+// Track cost after each phase
+export async function trackReviewCost(
+  db: Db,
+  uploadId: string,
+  phase: string,
+  model: string,
+  tokens: { input: number; output: number },
+): Promise<void>
 
-// Inject knowledge into an agent system prompt
-export function injectKnowledge(
-  basePrompt: string,
-  knowledgeBase: ReviewerKnowledgeBase,
-  dimensions: number[],
-): string
+// Get today's total LLM cost (UTC day)
+export async function getTodayLLMCost(db: Db): Promise<number>
+
+// Count reviews enqueued in last hour
+export async function countReviewsInLastHour(db: Db): Promise<number>
 ```
 
-## Implementation Details
-
-### loadKnowledgeBase (index.ts)
+## Cost Estimation (cost-tracker.ts)
 
 ```typescript
-export async function loadKnowledgeBase(db: Db): Promise<ReviewerKnowledgeBase> {
-  const [standards, patterns, weights, versionRow] = await Promise.all([
-    db.select().from(reviewerStandards).where(isNull(reviewerStandards.retiredAt)),
-    db.select().from(reviewerPatterns),
-    db.select().from(reviewerDimensionWeights).orderBy(desc(reviewerDimensionWeights.adjustedAt)),
-    db.select({ version: max(reviewerKnowledgeVersions.version) }).from(reviewerKnowledgeVersions),
-  ])
-
-  return {
-    version: versionRow[0]?.version ?? 0,
-    updatedAt: new Date(),
-    codeStandards: standards.map(mapStandard),
-    patternLibrary: patterns.map(mapPattern),
-    dimensionWeights: deduplicateWeights(weights),
-  }
+const COST_PER_1K_TOKENS: Record<string, { input: number; output: number }> = {
+  'claude-sonnet-4-6': { input: 0.003, output: 0.015 },
+  'claude-haiku-4-5-20251001': { input: 0.0008, output: 0.004 },
+  'claude-opus-4-6': { input: 0.015, output: 0.075 },
 }
-```
 
-### recordReviewOutcome (outcome-recorder.ts)
+export function estimateCost(model: string, tokens: { input: number; output: number }): number {
+  const rates = COST_PER_1K_TOKENS[model] ?? COST_PER_1K_TOKENS['claude-sonnet-4-6']
+  return (tokens.input / 1000) * rates.input + (tokens.output / 1000) * rates.output
+}
 
-```typescript
-export async function recordReviewOutcome(db: Db, verdict: ReviewVerdict, uploadId: string): Promise<void> {
-  const id = crypto.randomUUID()
-  await db.insert(reviewOutcomes).values({
-    id,
+export async function trackReviewCost(
+  db: Db, uploadId: string, phase: string, model: string,
+  tokens: { input: number; output: number },
+): Promise<void> {
+  await db.insert(reviewCosts).values({
+    id: crypto.randomUUID(),
     uploadId,
-    verdict: verdict.decision,
-    dimensionScores: verdict.scorecard,
-    findings: verdict.findings,
+    phase,
+    model,
+    inputTokens: tokens.input,
+    outputTokens: tokens.output,
+    estimatedCost: estimateCost(model, tokens),
     createdAt: new Date(),
   })
 }
-```
 
-### injectKnowledge (knowledge-injector.ts)
-
-```typescript
-export function injectKnowledge(
-  basePrompt: string,
-  kb: ReviewerKnowledgeBase,
-  dimensions: number[],
-): string {
-  const relevantStandards = kb.codeStandards
-    .filter(s => dimensions.includes(s.dimension))
-    .filter(s => s.confidence > 30)
-    .sort((a, b) => b.confidence - a.confidence)
-    .slice(0, 20)
-
-  const relevantPatterns = kb.patternLibrary
-    .filter(p => dimensions.includes(p.dimension) && p.type === 'rejected')
-    .slice(0, 10)
-
-  if (relevantStandards.length === 0 && relevantPatterns.length === 0) return basePrompt
-
-  let injection = '\n\n## Learned Standards for This Review\n'
-  for (const s of relevantStandards) {
-    injection += `- [Dim ${s.dimension}] ${s.rule} (confidence: ${s.confidence}%)\n`
-  }
-
-  if (relevantPatterns.length > 0) {
-    injection += '\n## Known Bad Patterns to Watch For\n'
-    for (const p of relevantPatterns) {
-      injection += `- [Dim ${p.dimension}] ${p.patternDesc}\n`
-    }
-  }
-
-  return basePrompt + injection
+export async function getTodayLLMCost(db: Db): Promise<number> {
+  const todayUtc = new Date()
+  todayUtc.setUTCHours(0, 0, 0, 0)
+  const result = await db
+    .select({ total: sum(reviewCosts.estimatedCost) })
+    .from(reviewCosts)
+    .where(gte(reviewCosts.createdAt, todayUtc))
+  return Number(result[0]?.total ?? 0)
 }
 ```
 
-### runDistillation (distillation.ts)
+## Rate Limiter (rate-limiter.ts + packages/queue/src/reviewer-enqueue.ts)
 
 ```typescript
-export async function runDistillation(db: Db, windowDays = 30): Promise<void> {
-  const since = new Date(Date.now() - windowDays * 24 * 3600 * 1000)
-  const outcomes = await db.select().from(reviewOutcomes)
-    .where(gte(reviewOutcomes.createdAt, since))
+// packages/queue/src/reviewer-enqueue.ts
+import { getBoss } from './client'
+import type { ReviewerConfig } from '@cslate/pipeline' // or from the types
 
-  // Safety rails:
-  // 1. Minimum 3 confirming reviews before learning a new standard
-  // 2. Security dimensions (1-3) weights can only tighten (increase), never loosen
-  // 3. Dimension weight bounds: 0.5 - 2.0 without admin override
-  // 4. Every mutation creates a version record
+export async function enqueueReviewWithLimits(
+  data: { uploadId: string },
+  config: ReviewerConfig,
+  recentCount: number,
+  todayCost: number,
+): Promise<string | null> {
+  const boss = await getBoss()
 
-  // Distillation logic: find findings that appeared 3+ times in rejected components
-  // → candidate new standards
-  // Find findings that appeared in approved components → increase confidence of existing
-  // ... (implement per spec Section 7)
+  // 1. Kill switch
+  if (config.pauseReviews) {
+    throw new Error('Reviews are paused by admin')
+  }
+
+  // 2. Hourly rate limit — defer to next available slot
+  if (recentCount >= config.maxReviewsPerHour) {
+    const delaySeconds = Math.ceil(3600 / config.maxReviewsPerHour)
+    return boss.send('review-component', data, { startAfterSeconds: delaySeconds })
+  }
+
+  // 3. Daily cost cap — defer to tomorrow midnight UTC
+  if (todayCost >= config.maxLLMCostPerDay) {
+    const now = new Date()
+    const tomorrowUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1))
+    const delaySeconds = Math.ceil((tomorrowUtc.getTime() - now.getTime()) / 1000)
+    return boss.send('review-component', data, { startAfterSeconds: delaySeconds })
+  }
+
+  // 4. Throttled enqueue
+  return boss.sendThrottled('review-component', data, {}, config.reviewThrottleSeconds)
 }
 ```
 
-## Safety Rails in Distillation
+## getReviewerConfig (index.ts)
 
-1. Minimum 3 confirming reviews before learning a new standard
-2. Standards not confirmed in 90 days lose confidence (decay)
-3. Security dimension (1-3) weights: can only increase (tighten), never decrease
-4. Dimension weight bounds: 0.5 - 2.0 without admin override
-5. Every mutation creates a `reviewer_knowledge_versions` record
+```typescript
+import { DEFAULT_REVIEWER_CONFIG } from '../types'
+
+export async function getReviewerConfig(db: Db): Promise<ReviewerConfig> {
+  const rows = await db.select().from(reviewerConfig).where(eq(reviewerConfig.id, 'default'))
+  if (rows.length === 0) return DEFAULT_REVIEWER_CONFIG
+
+  const row = rows[0]
+  return {
+    maxConcurrentReviews: row.maxConcurrentReviews ?? DEFAULT_REVIEWER_CONFIG.maxConcurrentReviews,
+    maxReviewsPerHour: row.maxReviewsPerHour ?? DEFAULT_REVIEWER_CONFIG.maxReviewsPerHour,
+    reviewThrottleSeconds: row.reviewThrottleSeconds ?? DEFAULT_REVIEWER_CONFIG.reviewThrottleSeconds,
+    pauseReviews: row.pauseReviews ?? DEFAULT_REVIEWER_CONFIG.pauseReviews,
+    maxLLMCostPerDay: row.maxLlmCostPerDay ?? DEFAULT_REVIEWER_CONFIG.maxLLMCostPerDay,
+    maxExpertAgentIterations: row.maxExpertAgentIterations ?? DEFAULT_REVIEWER_CONFIG.maxExpertAgentIterations,
+    maxRedTeamIterations: row.maxRedTeamIterations ?? DEFAULT_REVIEWER_CONFIG.maxRedTeamIterations,
+    maxJudgeIterations: row.maxJudgeIterations ?? DEFAULT_REVIEWER_CONFIG.maxJudgeIterations,
+    qualityThreshold: row.qualityThreshold ?? DEFAULT_REVIEWER_CONFIG.qualityThreshold,
+    maxWarnings: row.maxWarnings ?? DEFAULT_REVIEWER_CONFIG.maxWarnings,
+    modelOverrides: (row.modelOverrides as ReviewerConfig['modelOverrides']) ?? DEFAULT_REVIEWER_CONFIG.modelOverrides,
+  }
+}
+
+export async function updateReviewerConfig(db: Db, updates: Partial<ReviewerConfig>): Promise<ReviewerConfig> {
+  await db.insert(reviewerConfig)
+    .values({ id: 'default', ...mapToRow(updates), updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: reviewerConfig.id,
+      set: { ...mapToRow(updates), updatedAt: new Date() },
+    })
+  return getReviewerConfig(db)
+}
+```
 
 ## TDD Approach
 
-1. **schema.test.ts**: Verify each schema compiles with correct column types (just import — TypeScript will verify)
-2. **knowledge-injector.test.ts**: Test with mock KB → verify standards injected, empty KB returns basePrompt unchanged
-3. **outcome-recorder.test.ts**: Test with mock DB (vitest mock) → verify insert called with correct shape
-4. **index.test.ts**: Test loadKnowledgeBase with empty DB → returns defaults (version 0, empty arrays)
-5. **distillation.test.ts**: Test with 3+ identical findings → verify candidate standard created
+1. **cost-tracker.test.ts**: Test `estimateCost` formula with known values. Test `getTodayLLMCost` returns sum only for today.
+2. **index.test.ts**: Test `getReviewerConfig` with empty DB → returns DEFAULT_REVIEWER_CONFIG. Test `updateReviewerConfig` stores and returns updated config.
+3. **rate-limiter.test.ts**: Mock pg-boss → test pause throws, hourly limit defers, cost cap defers, normal path uses sendThrottled.
 
-Test command: `npx vitest run packages/pipeline/src/reviewer-agent/learning/__tests__/ --reporter verbose`
+Test command: `npx vitest run packages/pipeline/src/reviewer-agent/config/__tests__/ --reporter verbose`
 
 ## When You're Done
 
-All 6 DB schemas defined following Drizzle patterns, knowledge loader returns safe defaults, outcome recorder stores verdicts, knowledge injector adds relevant standards to prompts, distillation safety rails enforced, tests pass.
+DB schema defined, `getReviewerConfig` returns defaults when DB empty, `updateReviewerConfig` persists changes, cost tracking accumulates correctly, rate limiting logic correct for all 4 cases (pause, hourly, daily, throttled), tests pass.
 
-<promise>LEARNING SYSTEM COMPLETE</promise>
+<promise>COST CONTROL COMPLETE</promise>

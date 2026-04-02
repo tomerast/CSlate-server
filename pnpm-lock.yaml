@@ -171,6 +171,9 @@ importers:
       '@cslate/llm':
         specifier: workspace:*
         version: link:../llm
+      '@cslate/queue':
+        specifier: workspace:*
+        version: link:../queue
       '@cslate/storage':
         specifier: workspace:*
         version: link:../storage
