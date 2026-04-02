@@ -1,0 +1,20 @@
+{
+  "domains": [
+    "ngrok.io",
+    "ngrok.app",
+    "requestbin.com",
+    "requestcatcher.com",
+    "webhook.site",
+    "hookbin.com",
+    "pipedream.net",
+    "beeceptor.com",
+    "localhost",
+    "127.0.0.1",
+    "0.0.0.0",
+    "10.0.",
+    "192.168.",
+    "172.16.",
+    "internal.",
+    ".local"
+  ]
+}

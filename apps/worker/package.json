@@ -1,0 +1,24 @@
+{
+  "name": "@cslate/worker",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup src/index.ts --format cjs",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@cslate/db": "workspace:*",
+    "@cslate/storage": "workspace:*",
+    "@cslate/queue": "workspace:*",
+    "@cslate/pipeline": "workspace:*",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.3.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0"
+  }
+}
