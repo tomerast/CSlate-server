@@ -5,6 +5,7 @@ import { checkPipelineDependencies } from './pipeline-stages/3-dependency-check'
 import { reviewPipelineQuality } from './pipeline-stages/4-quality-review'
 import { catalogPipeline } from './pipeline-stages/5-cataloging'
 import { embedAndStorePipeline } from './pipeline-stages/6-embedding'
+import { agentReview } from './reviewer-agent'
 
 export type PipelineReviewProgressCallback = (
   stage: string,
@@ -17,12 +18,15 @@ export async function runPipelineReview(
   onProgress: PipelineReviewProgressCallback,
 ): Promise<{ status: 'approved' | 'rejected'; stages: StageResult[] }> {
   const completedStageNames = new Set(ctx.previousResults.map((r) => r.stage))
+  // Backward compatibility: old stage names count as agent_review already done
+  if (completedStageNames.has('security-scan') || completedStageNames.has('quality-review')) {
+    completedStageNames.add('agent-review')
+  }
 
   const stages = [
     { name: 'manifest-validation', fn: () => validatePipelineManifest(ctx) },
-    { name: 'security-scan', fn: () => scanPipelineSecurity(ctx) },
     { name: 'dependency-check', fn: () => checkPipelineDependencies(ctx) },
-    { name: 'quality-review', fn: () => reviewPipelineQuality(ctx) },
+    { name: 'agent-review', fn: () => agentReview(ctx as unknown as import('./types').PipelineContext) },
     { name: 'cataloging', fn: () => catalogPipeline(ctx) },
     { name: 'embedding-store', fn: () => embedAndStorePipeline(ctx) },
   ]

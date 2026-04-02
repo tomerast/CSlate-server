@@ -12,3 +12,7 @@ export { embeddingAndStore } from './stages/7-embedding'
 export * from './pipeline-types'
 export { runPipelineReview } from './pipeline-runner'
 export type { PipelineReviewProgressCallback } from './pipeline-runner'
+
+// Reviewer agent exports
+export { agentReview } from './reviewer-agent'
+export type { AgentReviewProgressCallback, AgentReviewProgress } from './reviewer-agent'
