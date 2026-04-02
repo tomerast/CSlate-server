@@ -1,8 +1,9 @@
 import 'dotenv/config'
 import pino from 'pino'
-import { getBoss, stopBoss, JOB_NAMES, registerMaintenanceSchedules } from '@cslate/queue'
+import { getBoss, stopBoss, JOB_NAMES, registerMaintenanceSchedules, PIPELINE_REVIEW_JOB } from '@cslate/queue'
 import { reviewHandler } from './handlers/review'
 import { cleanupHandler } from './handlers/maintenance'
+import { pipelineReviewHandler } from './handlers/pipeline-review'
 
 export const log = pino({
   level: process.env.LOG_LEVEL ?? 'info',
@@ -21,6 +22,13 @@ async function main() {
     JOB_NAMES.REVIEW_COMPONENT,
     { teamConcurrency: 5 },
     reviewHandler
+  )
+
+  // Register pipeline review handler
+  await boss.work(
+    PIPELINE_REVIEW_JOB,
+    { teamConcurrency: 3 },
+    pipelineReviewHandler,
   )
 
   // Register maintenance job handlers
