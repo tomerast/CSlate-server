@@ -7,3 +7,8 @@ export { qualityReview } from './stages/4-quality-review'
 export { testRender } from './stages/5-test-render'
 export { cataloging } from './stages/6-cataloging'
 export { embeddingAndStore } from './stages/7-embedding'
+
+// Pipeline review exports
+export * from './pipeline-types'
+export { runPipelineReview } from './pipeline-runner'
+export type { PipelineReviewProgressCallback } from './pipeline-runner'
