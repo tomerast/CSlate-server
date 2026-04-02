@@ -108,41 +108,4 @@ export interface StageProgress {
 export type StageFunction = (ctx: PipelineContext) => Promise<StageResult>
 export type ProgressCallback = (progress: StageProgress) => Promise<void>
 
-// ─── PipelineManifest ─────────────────────────────────────────────────────────
-
-const SecretFieldSchema = z.object({
-  description: z.string(),
-  required: z.boolean(),
-})
-
-const ParamFieldSchema = z.object({
-  type: z.enum(['string', 'number', 'boolean', 'object']),
-  description: z.string(),
-  required: z.boolean(),
-  default: z.unknown().optional(),
-})
-
-const OutputFieldSchema = z.object({
-  type: z.string(),
-  description: z.string(),
-})
-
-const StrategySchema = z.object({
-  type: z.enum(['on-demand', 'polling', 'streaming']),
-  intervalMs: z.number().int().positive().optional(),
-  cacheTtlMs: z.number().int().positive().optional(),
-})
-
-export const PipelineManifestSchema = z.object({
-  name: z.string().min(1).max(100),
-  description: z.string().min(1).max(1000),
-  tags: z.array(z.string()).min(1).max(20),
-  version: z.string().regex(/^\d+\.\d+\.\d+$/).optional(),
-  files: z.array(z.string()).min(1),
-  secrets: z.record(SecretFieldSchema).optional().default({}),
-  params: z.record(ParamFieldSchema).optional().default({}),
-  outputSchema: z.record(OutputFieldSchema).optional().default({}),
-  strategy: StrategySchema,
-})
-
-export type PipelineManifest = z.infer<typeof PipelineManifestSchema>
+// PipelineManifest types are in pipeline-types.ts — import from there

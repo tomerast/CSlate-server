@@ -26,11 +26,6 @@ export async function enqueueReviewJob(data: ReviewJobData): Promise<string | nu
   return boss.send(JOB_NAMES.REVIEW_COMPONENT, data)
 }
 
-export async function enqueuePipelineReviewJob(data: ReviewJobData): Promise<string | null> {
-  const boss = await getBoss()
-  return boss.send(JOB_NAMES.REVIEW_PIPELINE, data)
-}
-
 export async function registerMaintenanceSchedules(): Promise<void> {
   const boss = await getBoss()
   await boss.schedule(JOB_NAMES.CLEANUP_FAILED_UPLOADS, '0 3 * * *', {}) // Daily 3 AM
