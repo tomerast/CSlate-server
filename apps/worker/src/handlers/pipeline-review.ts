@@ -3,7 +3,7 @@ import { log } from '../index'
 import { getUploadById, updateUpload, getPool } from '@cslate/db'
 import { getComponentFiles } from '@cslate/storage'
 import { runPipelineReview } from '@cslate/pipeline'
-import type { PipelineReviewContext, StageResult } from '@cslate/pipeline'
+import type { PipelineReviewContext, StageResult, PipelineReviewProgressCallback } from '@cslate/pipeline'
 import type { PipelineReviewJobData } from '@cslate/queue'
 
 export async function pipelineReviewHandler(job: Job<PipelineReviewJobData>): Promise<void> {
@@ -38,7 +38,7 @@ export async function pipelineReviewHandler(job: Job<PipelineReviewJobData>): Pr
   }
 
   try {
-    const result = await runPipelineReview(ctx, async (stage, status, stageResult) => {
+    const onProgress: PipelineReviewProgressCallback = async (stage, status, stageResult) => {
       await updateUpload(uploadId, {
         currentStage: stage,
         completedStages: ctx.previousResults,
@@ -52,7 +52,8 @@ export async function pipelineReviewHandler(job: Job<PipelineReviewJobData>): Pr
           JSON.stringify({ stage, status, result: stageResult, completedStages: ctx.previousResults }),
         ],
       )
-    })
+    }
+    const result = await runPipelineReview(ctx, onProgress)
 
     if (result.status === 'approved') {
       log.info({ uploadId }, 'Pipeline approved')

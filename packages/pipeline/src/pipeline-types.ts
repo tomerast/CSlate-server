@@ -38,7 +38,7 @@ export const PipelineManifestSchema = z.object({
   strategy: z.object({
     type: z.enum(['on-demand', 'polling', 'streaming']),
     intervalMs: z.number().int().positive().optional(),
-    cacheTtlMs: z.number().int().nonneg().optional(),
+    cacheTtlMs: z.number().int().min(0).optional(),
   }),
 
   files: z.array(z.string()).min(1),
