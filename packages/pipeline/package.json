@@ -19,6 +19,7 @@
   "dependencies": {
     "@cslate/db": "workspace:*",
     "@cslate/llm": "workspace:*",
+    "@cslate/queue": "workspace:*",
     "@cslate/storage": "workspace:*",
     "zod": "^3.24.0",
     "drizzle-orm": "^0.40.0",
