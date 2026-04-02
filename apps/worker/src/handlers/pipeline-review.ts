@@ -1,7 +1,7 @@
 import type { Job } from 'pg-boss'
 import { log } from '../index'
 import { getUploadById, updateUpload, getPool } from '@cslate/db'
-import { getComponentFiles } from '@cslate/storage'
+import { getComponentFiles as getUploadFiles } from '@cslate/storage'
 import { runPipelineReview } from '@cslate/pipeline'
 import type { PipelineReviewContext, StageResult, PipelineReviewProgressCallback } from '@cslate/pipeline'
 import type { PipelineReviewJobData } from '@cslate/queue'
@@ -21,7 +21,7 @@ export async function pipelineReviewHandler(job: Job<PipelineReviewJobData>): Pr
   // Load files from R2
   let files: Record<string, string>
   try {
-    files = await getComponentFiles(upload.storageKey)
+    files = await getUploadFiles(upload.storageKey)
   } catch (err) {
     log.error({ uploadId, err }, 'Failed to load pipeline files from storage')
     await updateUpload(uploadId, { status: 'rejected' })

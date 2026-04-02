@@ -10,7 +10,7 @@ export const PipelineManifestSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().min(1).max(1000),
   tags: z.array(z.string()).min(1).max(20),
-  version: z.string().regex(/^\d+\.\d+\.\d+$/).optional(),
+  version: z.string().regex(/^\d+\.\d+\.\d+$/),
 
   secrets: z.record(
     z.object({

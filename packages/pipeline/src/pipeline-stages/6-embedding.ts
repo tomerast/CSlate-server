@@ -1,5 +1,5 @@
 import { getEmbedding } from '@cslate/llm'
-import { getPool } from '@cslate/db'
+import { createPipeline, updatePipelineUpload } from '@cslate/db'
 import { putFile } from '@cslate/storage'
 import type { PipelineReviewContext, StageResult } from '../pipeline-types'
 
@@ -46,14 +46,31 @@ export async function embedAndStorePipeline(
     // Store source files to R2
     const storageKey = await storePipelineFiles(ctx.uploadId, ctx.files)
 
-    // TODO(data-layer): Replace with createPipeline() from @cslate/db once
-    // the pipeline DB schema and queries are implemented (data-pipelines-data-layer branch).
-    // For now, update the upload record with approved status and storage key.
-    const pool = getPool()
-    await pool.query(
-      `UPDATE uploads SET status = 'approved', storage_key = $1, updated_at = now() WHERE id = $2`,
-      [storageKey, ctx.uploadId],
-    )
+    // Create pipeline record in DB with embedding
+    const pipeline = await createPipeline({
+      name: ctx.manifest.name,
+      pipelineId: ctx.manifest.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+      description: ctx.manifest.description,
+      tags: ctx.manifest.tags,
+      version: ctx.manifest.version,
+      strategyType: ctx.manifest.strategy.type,
+      secretNames: Object.keys(ctx.manifest.secrets),
+      outputSchema: ctx.manifest.outputSchema,
+      manifest: ctx.manifest,
+      storageKey,
+      authorId: (ctx as Record<string, unknown>).authorId as string,
+      summary: (catalogData['summary'] as string) ?? null,
+      contextSummary: (catalogData['contextSummary'] as string) ?? null,
+      category: (catalogData['category'] as string) ?? null,
+      embedding,
+    })
+
+    // Update upload record to link to the created pipeline
+    await updatePipelineUpload(ctx.uploadId, {
+      status: 'approved',
+      storageKey,
+      pipelineId: pipeline.id,
+    })
 
     return {
       stage: 'embedding-store',
