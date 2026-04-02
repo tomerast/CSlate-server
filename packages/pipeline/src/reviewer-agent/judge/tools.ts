@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { buildTool } from '@cslate/shared/agent'
-import { ExpertFinding } from '../types'
+import type { ExpertFinding } from '../types'
 
 export function buildJudgeTools(
   files: Record<string, string>,

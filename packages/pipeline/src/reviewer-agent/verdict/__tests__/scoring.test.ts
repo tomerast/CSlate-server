@@ -135,7 +135,7 @@ describe('computeVerdict', () => {
   it('approves when all quality dimensions pass and quality score exceeds threshold', () => {
     const judgeResult = makeJudgeResult({
       dimensionScores: [
-        { dimension: 4, name: 'Architecture', tier: 'quality', verdict: 'pass', confidence: 100, summary: '', verifiedFindings: 0, criticalCount: 0, warningCount: 0 },
+        { dimension: 4, name: 'Architecture', verdict: 'pass', confidence: 100, summary: '', verifiedFindings: 0, criticalCount: 0, warningCount: 0 },
       ],
     })
     const result = computeVerdict(judgeResult, makeRedTeamResult(), DEFAULT_REVIEWER_CONFIG, makeStats(), makeCost())
@@ -146,7 +146,7 @@ describe('computeVerdict', () => {
   it('rejects when a security-tier dimension fails', () => {
     const judgeResult = makeJudgeResult({
       dimensionScores: [
-        { dimension: 1, name: 'Malicious Intent', tier: 'security', verdict: 'fail', confidence: 90, summary: '', verifiedFindings: 1, criticalCount: 1, warningCount: 0 },
+        { dimension: 1, name: 'Malicious Intent', verdict: 'fail', confidence: 90, summary: '', verifiedFindings: 1, criticalCount: 1, warningCount: 0 },
       ],
     })
     const result = computeVerdict(judgeResult, makeRedTeamResult(), DEFAULT_REVIEWER_CONFIG, makeStats(), makeCost())
@@ -198,8 +198,8 @@ describe('computeVerdict', () => {
   it('rejects when quality score falls below configured threshold', () => {
     const judgeResult = makeJudgeResult({
       dimensionScores: [
-        { dimension: 4, name: 'Architecture', tier: 'quality', verdict: 'fail', confidence: 100, summary: '', verifiedFindings: 1, criticalCount: 0, warningCount: 1 },
-        { dimension: 5, name: 'Functionality', tier: 'quality', verdict: 'fail', confidence: 100, summary: '', verifiedFindings: 1, criticalCount: 0, warningCount: 1 },
+        { dimension: 4, name: 'Architecture', verdict: 'fail', confidence: 100, summary: '', verifiedFindings: 1, criticalCount: 0, warningCount: 1 },
+        { dimension: 5, name: 'Functionality', verdict: 'fail', confidence: 100, summary: '', verifiedFindings: 1, criticalCount: 0, warningCount: 1 },
       ],
     })
     const result = computeVerdict(judgeResult, makeRedTeamResult(), { ...DEFAULT_REVIEWER_CONFIG, qualityThreshold: 70 }, makeStats(), makeCost())
@@ -214,7 +214,7 @@ describe('computeVerdict', () => {
     const judgeResult = makeJudgeResult({
       verifiedFindings: warnings,
       dimensionScores: [
-        { dimension: 4, name: 'Architecture', tier: 'quality', verdict: 'pass', confidence: 100, summary: '', verifiedFindings: 0, criticalCount: 0, warningCount: 6 },
+        { dimension: 4, name: 'Architecture', verdict: 'pass', confidence: 100, summary: '', verifiedFindings: 0, criticalCount: 0, warningCount: 6 },
       ],
     })
     const result = computeVerdict(
@@ -231,7 +231,7 @@ describe('computeVerdict', () => {
   it('security check fires before red-team check (cascade order)', () => {
     const judgeResult = makeJudgeResult({
       dimensionScores: [
-        { dimension: 1, name: 'Malicious Intent', tier: 'security', verdict: 'fail', confidence: 90, summary: '', verifiedFindings: 1, criticalCount: 1, warningCount: 0 },
+        { dimension: 1, name: 'Malicious Intent', verdict: 'fail', confidence: 90, summary: '', verifiedFindings: 1, criticalCount: 1, warningCount: 0 },
       ],
     })
     const result = computeVerdict(
@@ -247,7 +247,7 @@ describe('computeVerdict', () => {
   it('returns full ReviewVerdict shape on approval', () => {
     const judgeResult = makeJudgeResult({
       dimensionScores: [
-        { dimension: 4, name: 'Architecture', tier: 'quality', verdict: 'pass', confidence: 100, summary: 'ok', verifiedFindings: 0, criticalCount: 0, warningCount: 0 },
+        { dimension: 4, name: 'Architecture', verdict: 'pass', confidence: 100, summary: 'ok', verifiedFindings: 0, criticalCount: 0, warningCount: 0 },
       ],
     })
     const result = computeVerdict(judgeResult, makeRedTeamResult(), DEFAULT_REVIEWER_CONFIG, makeStats(), makeCost())

@@ -1,31 +1,40 @@
-import type { ComponentManifest } from '../../types'
+import { toAISDKTools, runSubAgent, stripFences } from '@cslate/shared/agent'
 import type {
   RedTeamResult,
   StaticAnalysisResult,
   ExpertAgentResult,
   ReviewerConfig,
 } from '../types'
+import { buildAgentRegistry } from '../config/registry'
+import { buildRedTeamTools } from './tools'
+import { RED_TEAM_SYSTEM_PROMPT } from './prompts'
 
 export async function runRedTeam(
   files: Record<string, string>,
-  manifest: ComponentManifest,
+  manifest: Record<string, unknown>,
   staticResult: StaticAnalysisResult,
   expertResults: ExpertAgentResult[],
   config: ReviewerConfig,
 ): Promise<RedTeamResult> {
-  // TODO: Implement adversarial red-team agent:
-  // - Actively attempts to exploit the component
-  // - Tests for sandbox escape, data exfiltration, prompt injection
-  // - Chains findings from static and expert phases for attack vectors
+  const registry = buildAgentRegistry()
+  const tools = buildRedTeamTools(files, manifest, staticResult, expertResults)
+  const modelId = config.modelOverrides?.redTeam ?? 'anthropic:claude-sonnet-4-6'
 
-  return {
-    exploitAttempts: [],
-    overallThreatLevel: 'none',
-    sandboxEscapeRisk: 0,
-    dataExfiltrationRisk: 0,
-    supplyChainRisk: 0,
-    promptInjectionRisk: 0,
-    iterationsUsed: 0,
-    tokenCost: { input: 0, output: 0 },
-  }
+  const allFindings = expertResults.flatMap(r => r.findings)
+  const summary = `Expert agents found ${allFindings.length} total findings (${allFindings.filter(f => f.severity === 'critical').length} critical).`
+
+  const result = await runSubAgent({
+    modelId,
+    registry,
+    system: RED_TEAM_SYSTEM_PROMPT,
+    prompt: `Perform adversarial red-team analysis of this component.\n\n${summary}\n\nStart with listFiles(), then readFile each source file, then probe with searchCode and getBridgeAPISpec.`,
+    tools: toAISDKTools(tools),
+    maxSteps: config.maxRedTeamIterations ?? 10,
+    maxOutputTokens: 16_000,
+  })
+
+  const parsed = JSON.parse(stripFences(result.text)) as RedTeamResult
+  parsed.iterationsUsed = result.steps
+  parsed.tokenCost = { input: result.usage.inputTokens, output: result.usage.outputTokens }
+  return parsed
 }

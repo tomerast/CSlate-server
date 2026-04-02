@@ -1,4 +1,4 @@
-import type { ComponentManifest } from '../../types'
+import { toAISDKTools, runSubAgent, stripFences } from '@cslate/shared/agent'
 import type {
   JudgeResult,
   StaticAnalysisResult,
@@ -6,52 +6,44 @@ import type {
   RedTeamResult,
   ReviewerKnowledgeBase,
   ReviewerConfig,
-  FinalDimensionScore,
 } from '../types'
+import { buildAgentRegistry } from '../config/registry'
+import { buildJudgeTools } from './tools'
+import { JUDGE_SYSTEM_PROMPT } from './prompts'
 
 export async function runJudge(
   files: Record<string, string>,
-  manifest: ComponentManifest,
+  manifest: Record<string, unknown>,
   staticResult: StaticAnalysisResult,
   expertResults: ExpertAgentResult[],
   redTeamResult: RedTeamResult,
-  knowledgeBase: ReviewerKnowledgeBase,
-  config: ReviewerConfig,
+  knowledgeBase?: ReviewerKnowledgeBase,
+  config?: ReviewerConfig,
 ): Promise<JudgeResult> {
-  // TODO: Implement judge agent:
-  // - Verifies each expert finding against actual code
-  // - Rejects hallucinated findings
-  // - Resolves conflicts between experts
-  // - Produces final dimension scores
+  const registry = buildAgentRegistry()
+  const allFindings = expertResults.flatMap(r => r.findings)
+  const tools = buildJudgeTools(files, allFindings)
+  const modelId = config?.modelOverrides?.judge ?? 'anthropic:claude-sonnet-4-6'
 
-  const allFindings = expertResults.flatMap((r) => r.findings)
+  const prompt = [
+    `You are reviewing findings from ${expertResults.length} expert agents.`,
+    `Total findings to verify: ${allFindings.length} (${allFindings.filter(f => f.severity === 'critical').length} critical, ${allFindings.filter(f => f.severity === 'warning').length} warnings).`,
+    `Red-team threat level: ${redTeamResult.overallThreatLevel}.`,
+    `\nStart with listFindings({severity:"critical"}) to see the most important items, then verifyFinding for each one.`,
+  ].join('\n')
 
-  const dimensionScores: FinalDimensionScore[] = expertResults
-    .flatMap((r) => r.dimensions)
-    .map((d) => ({
-      dimension: d.dimension,
-      name: d.name,
-      verdict: d.verdict,
-      confidence: d.confidence,
-      summary: d.summary,
-      verifiedFindings: 0,
-      criticalCount: 0,
-      warningCount: 0,
-    }))
+  const result = await runSubAgent({
+    modelId,
+    registry,
+    system: JUDGE_SYSTEM_PROMPT,
+    prompt,
+    tools: toAISDKTools(tools),
+    maxSteps: config?.maxJudgeIterations ?? 12,
+    maxOutputTokens: 16_000,
+  })
 
-  return {
-    verifiedFindings: [],
-    rejectedFindings: [],
-    resolvedConflicts: [],
-    dimensionScores,
-    stats: {
-      totalFindingsReceived: allFindings.length,
-      hallucinated: 0,
-      duplicates: 0,
-      conflictsResolved: 0,
-      verified: 0,
-    },
-    iterationsUsed: 0,
-    tokenCost: { input: 0, output: 0 },
-  }
+  const parsed = JSON.parse(stripFences(result.text)) as JudgeResult
+  parsed.iterationsUsed = result.steps
+  parsed.tokenCost = { input: result.usage.inputTokens, output: result.usage.outputTokens }
+  return parsed
 }

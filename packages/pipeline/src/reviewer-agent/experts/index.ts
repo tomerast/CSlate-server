@@ -1,44 +1,26 @@
-import type { ComponentManifest } from '../../types'
 import type {
   ExpertAgentResult,
   StaticAnalysisResult,
   ReviewerKnowledgeBase,
   ReviewerConfig,
 } from '../types'
+import { buildAgentRegistry } from '../config/registry'
+import { runSecurityExpert } from './security-expert'
+import { runQualityExpert } from './quality-expert'
+import { runStandardsExpert } from './standards-expert'
 
 export async function runExpertAgents(
   files: Record<string, string>,
-  manifest: ComponentManifest,
+  manifest: Record<string, unknown>,
   staticResult: StaticAnalysisResult,
   knowledgeBase: ReviewerKnowledgeBase,
   config: ReviewerConfig,
 ): Promise<ExpertAgentResult[]> {
-  // TODO: Implement parallel expert agents:
-  // - security-expert: dimensions 1-3 (malicious intent, injection, credentials)
-  // - quality-expert: dimensions 4-7 (architecture, functionality, types, performance)
-  // - standards-expert: dimensions 8-10 (readability, accessibility, manifest)
+  const registry = buildAgentRegistry()
 
-  return [
-    {
-      agent: 'security-expert',
-      dimensions: [],
-      findings: [],
-      iterationsUsed: 0,
-      tokenCost: { input: 0, output: 0 },
-    },
-    {
-      agent: 'quality-expert',
-      dimensions: [],
-      findings: [],
-      iterationsUsed: 0,
-      tokenCost: { input: 0, output: 0 },
-    },
-    {
-      agent: 'standards-expert',
-      dimensions: [],
-      findings: [],
-      iterationsUsed: 0,
-      tokenCost: { input: 0, output: 0 },
-    },
-  ]
+  return Promise.all([
+    runSecurityExpert(files, manifest, staticResult, knowledgeBase, config, registry),
+    runQualityExpert(files, manifest, staticResult, knowledgeBase, config, registry),
+    runStandardsExpert(files, manifest, staticResult, knowledgeBase, config, registry),
+  ])
 }

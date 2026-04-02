@@ -58,7 +58,7 @@ export async function embedAndStorePipeline(
       outputSchema: ctx.manifest.outputSchema,
       manifest: ctx.manifest,
       storageKey,
-      authorId: (ctx as Record<string, unknown>).authorId as string,
+      authorId: (ctx as unknown as Record<string, unknown>).authorId as string,
       summary: (catalogData['summary'] as string) ?? null,
       contextSummary: (catalogData['contextSummary'] as string) ?? null,
       category: (catalogData['category'] as string) ?? null,

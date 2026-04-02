@@ -6,7 +6,7 @@ describe('runStaticAnalysis', () => {
     const files = {
       'index.ts': 'eval("malicious")',
     }
-    const result = await runStaticAnalysis(files, {})
+    const result = await runStaticAnalysis(files, {} as any)
     expect(result.criticalFindings.length).toBeGreaterThan(0)
     expect(result.criticalFindings.some(f => f.message.includes('eval()'))).toBe(true)
   })
@@ -15,7 +15,7 @@ describe('runStaticAnalysis', () => {
     const files = {
       'index.ts': 'export function add(a: number, b: number) { return a + b }',
     }
-    const result = await runStaticAnalysis(files, {})
+    const result = await runStaticAnalysis(files, {} as any)
     expect(result).toHaveProperty('criticalFindings')
     expect(result).toHaveProperty('warnings')
     expect(result).toHaveProperty('codeStructure')
@@ -32,7 +32,7 @@ function greet(name: string) { return "hello " + name }
 greet(42)
 `,
     }
-    const result = await runStaticAnalysis(files, {})
+    const result = await runStaticAnalysis(files, {} as any)
     const ts2345 = result.criticalFindings.find(f => f.pattern === 'TS2345')
     expect(ts2345).toBeDefined()
     expect(ts2345?.severity).toBe('critical')
@@ -44,7 +44,7 @@ greet(42)
     const files = {
       'index.ts': 'const x: string = 42',
     }
-    const result = await runStaticAnalysis(files, {})
+    const result = await runStaticAnalysis(files, {} as any)
     const ts2322 = result.criticalFindings.find(f => f.pattern === 'TS2322')
     expect(ts2322).toBeDefined()
   })
@@ -93,7 +93,7 @@ export function DataTable({ title }: { title: string }) {
     }
 
     const start = Date.now()
-    const result = await runStaticAnalysis(files, {})
+    const result = await runStaticAnalysis(files, {} as any)
     const duration = Date.now() - start
 
     expect(duration).toBeLessThan(5000)
@@ -104,7 +104,7 @@ export function DataTable({ title }: { title: string }) {
     const files = {
       'index.ts': 'export function main() {}',
     }
-    const result = await runStaticAnalysis(files, {})
+    const result = await runStaticAnalysis(files, {} as any)
     expect(result.codeStructure.files['index.ts']).toBeDefined()
   })
 
@@ -116,7 +116,7 @@ export function add(a: number, b: number): number {
 }
 `,
     }
-    const result = await runStaticAnalysis(files, {})
+    const result = await runStaticAnalysis(files, {} as any)
     expect(result.criticalFindings.length).toBe(0)
   })
 })

@@ -50,7 +50,7 @@ export async function agentReview(
 
   // ─── Phase 2: Parallel Expert Agents ────────────────────────────────────
   await onProgress?.({ phase: 'expert_agents', status: 'in_progress' })
-  const expertResults = await runExpertAgents(ctx.files, ctx.manifest, staticResult, knowledgeBase, config)
+  const expertResults = await runExpertAgents(ctx.files, ctx.manifest as Record<string, unknown>, staticResult, knowledgeBase, config)
   await onProgress?.({ phase: 'expert_agents', status: 'complete' })
 
   // Track cost for each expert
@@ -69,13 +69,13 @@ export async function agentReview(
   if (!securityFailed) {
     // ─── Phase 3: Red-Team ─────────────────────────────────────────────────
     await onProgress?.({ phase: 'red_team', status: 'in_progress' })
-    redTeamResult = await runRedTeam(ctx.files, ctx.manifest, staticResult, expertResults, config)
+    redTeamResult = await runRedTeam(ctx.files, ctx.manifest as Record<string, unknown>, staticResult, expertResults, config)
     await onProgress?.({ phase: 'red_team', status: 'complete' })
     await trackCost('red_team', config.modelOverrides.redTeam ?? 'claude-sonnet-4-6', redTeamResult.tokenCost)
 
     // ─── Phase 4: Judge ────────────────────────────────────────────────────
     await onProgress?.({ phase: 'judge', status: 'in_progress' })
-    judgeResult = await runJudge(ctx.files, ctx.manifest, staticResult, expertResults, redTeamResult, knowledgeBase, config)
+    judgeResult = await runJudge(ctx.files, ctx.manifest as Record<string, unknown>, staticResult, expertResults, redTeamResult, knowledgeBase, config)
     await onProgress?.({ phase: 'judge', status: 'complete' })
     await trackCost('judge', config.modelOverrides.judge ?? 'claude-sonnet-4-6', judgeResult.tokenCost)
   } else {
