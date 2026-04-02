@@ -7,6 +7,9 @@ import { componentRoutes } from './routes/components'
 import { uploadRoutes } from './routes/uploads'
 import { checkpointRoutes } from './routes/checkpoints'
 import { userRoutes } from './routes/users'
+import { pipelineRoutes } from './routes/pipelines'
+import { pipelineUploadRoutes } from './routes/pipeline-uploads'
+import { searchRoutes } from './routes/search'
 
 import { log } from './lib/logger'
 export { log } from './lib/logger'
@@ -31,6 +34,9 @@ api.route('/components', uploadRoutes)
 api.route('/components', componentRoutes)
 api.route('/checkpoints', checkpointRoutes)
 api.route('/users', userRoutes)
+api.route('/pipelines/upload', pipelineUploadRoutes)
+api.route('/pipelines', pipelineRoutes)
+api.route('/search', searchRoutes)
 
 app.route('/api/v1', api)
 
