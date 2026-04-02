@@ -22,7 +22,10 @@ export async function searchPipelines(params: PipelineSearchParams): Promise<{ r
   const pool = getPool()
   const limit = params.limit ?? 20
   const offset = params.offset ?? 0
-  const sortBy = params.sortBy ?? 'relevance'
+  const validSortOptions = ['relevance', 'rating', 'downloads', 'recent'] as const
+  const sortBy = validSortOptions.includes(params.sortBy as typeof validSortOptions[number])
+    ? params.sortBy!
+    : 'relevance'
 
   const embeddingStr = `[${params.queryEmbedding.join(',')}]`
 

@@ -38,6 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_pipelines_author ON pipelines(author_id);
 CREATE INDEX IF NOT EXISTS idx_pipelines_name_author ON pipelines(name, author_id);
 CREATE INDEX IF NOT EXISTS idx_pipelines_download ON pipelines(download_count DESC);
 CREATE INDEX IF NOT EXISTS idx_pipelines_strategy ON pipelines(strategy_type);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pipelines_pipeline_id ON pipelines(pipeline_id);
 
 CREATE TABLE IF NOT EXISTS "pipeline_uploads" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

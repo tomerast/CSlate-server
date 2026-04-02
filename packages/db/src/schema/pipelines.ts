@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, boolean, jsonb, timestamp, index } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, text, integer, boolean, jsonb, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { users } from './users'
 
@@ -57,6 +57,7 @@ export const pipelines = pgTable('pipelines', {
   index('idx_pipelines_name_author').on(table.name, table.authorId),
   index('idx_pipelines_download').on(table.downloadCount),
   index('idx_pipelines_strategy').on(table.strategyType),
+  uniqueIndex('idx_pipelines_pipeline_id').on(table.pipelineId),
 ])
 
 export type Pipeline = typeof pipelines.$inferSelect
