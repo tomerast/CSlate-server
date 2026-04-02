@@ -15,6 +15,7 @@ export type MaintenanceJobData = Record<string, never>
 // Job names
 export const JOB_NAMES = {
   REVIEW_COMPONENT: 'review-component',
+  REVIEW_PIPELINE: 'review-pipeline',
   CLEANUP_FAILED_UPLOADS: 'cleanup-failed-uploads',
   CREATE_PARTITION: 'create-partition',
   DROP_OLD_PARTITIONS: 'drop-old-partitions',
@@ -23,6 +24,11 @@ export const JOB_NAMES = {
 export async function enqueueReviewJob(data: ReviewJobData): Promise<string | null> {
   const boss = await getBoss()
   return boss.send(JOB_NAMES.REVIEW_COMPONENT, data)
+}
+
+export async function enqueuePipelineReviewJob(data: ReviewJobData): Promise<string | null> {
+  const boss = await getBoss()
+  return boss.send(JOB_NAMES.REVIEW_PIPELINE, data)
 }
 
 export async function registerMaintenanceSchedules(): Promise<void> {
