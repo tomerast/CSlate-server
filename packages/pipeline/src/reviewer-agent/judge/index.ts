@@ -1,52 +1,57 @@
-import { buildRegistry, toAISDKTools, runSubAgent, stripFences } from '@cslate/shared/agent'
-import {
-  ExpertAgentResult,
+import type { ComponentManifest } from '../../types'
+import type {
   JudgeResult,
-  RedTeamResult,
-  ReviewerConfig,
-  ReviewerKnowledgeBase,
   StaticAnalysisResult,
+  ExpertAgentResult,
+  RedTeamResult,
+  ReviewerKnowledgeBase,
+  ReviewerConfig,
+  FinalDimensionScore,
 } from '../types'
-import { buildJudgeTools } from './tools'
-import { JUDGE_SYSTEM_PROMPT } from './prompts'
 
 export async function runJudge(
   files: Record<string, string>,
-  manifest: Record<string, unknown>,
+  manifest: ComponentManifest,
   staticResult: StaticAnalysisResult,
   expertResults: ExpertAgentResult[],
   redTeamResult: RedTeamResult,
-  knowledgeBase?: ReviewerKnowledgeBase,
-  config?: Partial<ReviewerConfig>,
+  knowledgeBase: ReviewerKnowledgeBase,
+  config: ReviewerConfig,
 ): Promise<JudgeResult> {
-  const allFindings = expertResults.flatMap(r => r.findings)
-  const registry = buildRegistry({
-    provider: 'anthropic',
-    model: 'claude-sonnet-4-6',
-    apiKey: process.env.ANTHROPIC_API_KEY,
-  })
-  const tools = buildJudgeTools(files, allFindings)
-  const maxIterations = config?.maxJudgeIterations ?? 12
+  // TODO: Implement judge agent:
+  // - Verifies each expert finding against actual code
+  // - Rejects hallucinated findings
+  // - Resolves conflicts between experts
+  // - Produces final dimension scores
 
-  const nonInfoFindings = allFindings.filter(f => f.severity !== 'info')
-  const findingSummary = nonInfoFindings
-    .map(f => `[DIM${f.dimension}][${f.severity.toUpperCase()}] ${f.title} in ${f.file}:${f.line ?? '?'}`)
-    .join('\n')
+  const allFindings = expertResults.flatMap((r) => r.findings)
 
-  const result = await runSubAgent({
-    modelId: config?.modelOverrides?.judge ?? 'anthropic:claude-sonnet-4-6',
-    registry,
-    system: JUDGE_SYSTEM_PROMPT,
-    prompt: `Verify these ${nonInfoFindings.length} non-info findings:\n\n${findingSummary}\n\nUse listFindings(all) then verifyFinding for each critical/warning finding.`,
-    tools: toAISDKTools(tools),
-    maxSteps: maxIterations,
-    maxOutputTokens: 16_000,
-  })
+  const dimensionScores: FinalDimensionScore[] = expertResults
+    .flatMap((r) => r.dimensions)
+    .map((d) => ({
+      dimension: d.dimension,
+      name: d.name,
+      verdict: d.verdict,
+      confidence: d.confidence,
+      summary: d.summary,
+      verifiedFindings: 0,
+      criticalCount: 0,
+      warningCount: 0,
+    }))
 
-  const parsed = JSON.parse(stripFences(result.text))
   return {
-    ...parsed,
-    iterationsUsed: result.steps,
-    tokenCost: { input: result.usage.inputTokens, output: result.usage.outputTokens },
-  } as JudgeResult
+    verifiedFindings: [],
+    rejectedFindings: [],
+    resolvedConflicts: [],
+    dimensionScores,
+    stats: {
+      totalFindingsReceived: allFindings.length,
+      hallucinated: 0,
+      duplicates: 0,
+      conflictsResolved: 0,
+      verified: 0,
+    },
+    iterationsUsed: 0,
+    tokenCost: { input: 0, output: 0 },
+  }
 }

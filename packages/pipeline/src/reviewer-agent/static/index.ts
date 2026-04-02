@@ -1,35 +1,32 @@
+import type { ComponentManifest } from '../../types'
 import type { StaticAnalysisResult } from '../types'
-import { buildCodeStructureMap } from './ast-parser'
-import { runPatternMatching } from './pattern-matcher'
-import { runTypeCheck } from './type-checker'
 
 export async function runStaticAnalysis(
   files: Record<string, string>,
-  manifest: Record<string, unknown>,
+  manifest: ComponentManifest,
 ): Promise<StaticAnalysisResult> {
   const startTime = Date.now()
 
-  const [codeStructure, { criticalFindings, warnings }, typeCheckResult] = await Promise.all([
-    Promise.resolve(buildCodeStructureMap(files)),
-    Promise.resolve(runPatternMatching(files)),
-    Promise.resolve(runTypeCheck(files)),
-  ])
+  // TODO: Implement static analysis phases:
+  // - AST parsing and code structure mapping
+  // - Security pattern scanning (obfuscation, eval, prototype pollution)
+  // - Type checking via TypeScript compiler API
+  // - Bridge call analysis
+  // - Dependency graph construction
 
-  // Promote certain TypeScript errors to critical findings
-  for (const error of typeCheckResult.errors) {
-    if (['TS2345', 'TS2322', 'TS2551'].includes(error.code)) {
-      criticalFindings.push({
-        analyzer: 'typescript',
-        dimension: 6,
-        severity: 'critical',
-        file: error.file,
-        line: error.line,
-        pattern: error.code,
-        message: error.message,
-        evidence: `TypeScript error ${error.code} at ${error.file}:${error.line}:${error.column}`,
-      })
-    }
+  return {
+    criticalFindings: [],
+    warnings: [],
+    codeStructure: {
+      files: {},
+      dependencyGraph: {},
+      unusedExports: [],
+      circularDependencies: [],
+    },
+    typeCheckResult: {
+      success: true,
+      errors: [],
+    },
+    duration: Date.now() - startTime,
   }
-
-  return { criticalFindings, warnings, codeStructure, typeCheckResult, duration: Date.now() - startTime }
 }

@@ -1,9 +1,10 @@
 import type { Job } from 'pg-boss'
+import { sql } from 'drizzle-orm'
 import { log } from '../index'
-import { getUploadById, updateUpload, getPool } from '@cslate/db'
+import { getUploadById, updateUpload, getPool, getDb } from '@cslate/db'
 import { getComponentFiles as getUploadFiles } from '@cslate/storage'
 import { runPipelineReview } from '@cslate/pipeline'
-import type { PipelineReviewContext, StageResult, PipelineReviewProgressCallback } from '@cslate/pipeline'
+import type { PipelineReviewContext, StageResult, PipelineReviewProgressCallback, AgentReviewProgressCallback } from '@cslate/pipeline'
 import type { PipelineReviewJobData } from '@cslate/queue'
 
 export async function pipelineReviewHandler(job: Job<PipelineReviewJobData>): Promise<void> {
@@ -35,6 +36,16 @@ export async function pipelineReviewHandler(job: Job<PipelineReviewJobData>): Pr
     manifest: upload.manifest as PipelineReviewContext['manifest'],
     files,
     previousResults: completedStages,
+  }
+
+  // Sub-phase progress streaming for agent_review stage.
+  // This callback can be passed directly to agentReview() when calling outside runPipelineReview.
+  const drizzleDb = getDb()
+  const agentReviewProgressCallback: AgentReviewProgressCallback = async (progress) => {
+    await drizzleDb.execute(sql`SELECT pg_notify('review_progress', ${JSON.stringify({
+      uploadId: ctx.uploadId,
+      ...progress,
+    })})`)
   }
 
   try {

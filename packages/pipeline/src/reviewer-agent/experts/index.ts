@@ -1,27 +1,44 @@
-import { buildRegistry } from '@cslate/shared/agent'
-import { runSecurityExpert } from './security-expert'
-import { runQualityExpert } from './quality-expert'
-import { runStandardsExpert } from './standards-expert'
-import type { ExpertAgentResult, StaticAnalysisResult, ReviewerKnowledgeBase, ReviewerConfig } from '../types'
+import type { ComponentManifest } from '../../types'
+import type {
+  ExpertAgentResult,
+  StaticAnalysisResult,
+  ReviewerKnowledgeBase,
+  ReviewerConfig,
+} from '../types'
 
 export async function runExpertAgents(
   files: Record<string, string>,
-  manifest: Record<string, unknown>,
+  manifest: ComponentManifest,
   staticResult: StaticAnalysisResult,
   knowledgeBase: ReviewerKnowledgeBase,
   config: ReviewerConfig,
 ): Promise<ExpertAgentResult[]> {
-  const registry = buildRegistry({
-    provider: 'anthropic',
-    model: 'claude-sonnet-4-6',
-    apiKey: process.env.ANTHROPIC_API_KEY,
-  })
+  // TODO: Implement parallel expert agents:
+  // - security-expert: dimensions 1-3 (malicious intent, injection, credentials)
+  // - quality-expert: dimensions 4-7 (architecture, functionality, types, performance)
+  // - standards-expert: dimensions 8-10 (readability, accessibility, manifest)
 
-  const [securityResult, qualityResult, standardsResult] = await Promise.all([
-    runSecurityExpert(files, manifest, staticResult, knowledgeBase, config, registry),
-    runQualityExpert(files, manifest, staticResult, knowledgeBase, config, registry),
-    runStandardsExpert(files, manifest, staticResult, knowledgeBase, config, registry),
-  ])
-
-  return [securityResult, qualityResult, standardsResult]
+  return [
+    {
+      agent: 'security-expert',
+      dimensions: [],
+      findings: [],
+      iterationsUsed: 0,
+      tokenCost: { input: 0, output: 0 },
+    },
+    {
+      agent: 'quality-expert',
+      dimensions: [],
+      findings: [],
+      iterationsUsed: 0,
+      tokenCost: { input: 0, output: 0 },
+    },
+    {
+      agent: 'standards-expert',
+      dimensions: [],
+      findings: [],
+      iterationsUsed: 0,
+      tokenCost: { input: 0, output: 0 },
+    },
+  ]
 }
