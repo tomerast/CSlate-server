@@ -105,7 +105,7 @@ This is where the real capability improvement lives. Study the reference prompts
 
 ### Priority 5: Orchestration Improvements  
 - [x] Add timeout handling per phase — if an expert takes too long, gracefully degrade
-- [ ] Improve short-circuit logic — current logic is binary (critical = skip). Add nuance: security criticals skip to verdict, but quality criticals still benefit from judge verification
+- [x] Improve short-circuit logic — current logic is binary (critical = skip). Add nuance: security criticals skip to verdict, but quality criticals still benefit from judge verification
 - [x] Add retry logic for transient LLM failures (rate limits, timeouts)
 - [x] Improve progress callbacks — report which specific agent is running, what phase, estimated completion
 - [ ] Consider streaming partial results — don't wait for all experts to finish before showing early findings
@@ -140,6 +140,7 @@ Iteration 5: Priority 4a — Added `analyzeComponent` tool to shared-tools.ts le
 Iteration 6: Priority 5 — Added timeout handling per phase (30s static, 3m experts, 2m red-team/judge), retry with exponential backoff for transient LLM errors (rate limits, timeouts, connection resets), improved progress callbacks with detail messages (finding counts, timing, specific agent info), and phase duration tracking. All 247 tests pass.
 Iteration 7: Priority 6 — Made tier weights configurable (added tierWeights to ReviewerConfig), improved report renderer with actionable fix suggestions per dimension (security, quality, standards), added review stats section to report, added dimension names to critical findings. All 247 tests pass.
 Iteration 8: Priority 2c + 4b — Added `getComponentContext` tool (hooks, props, effects, state, event handlers, memoization). Added input validation (regex error handling) to searchCode, checkPattern, and verifyFinding tools across all phases. All 247 tests pass.
+Iteration 9: Priority 5b — Improved short-circuit logic: security criticals now skip red-team but still run judge (anti-hallucination verification). Previously both were skipped, risking false positives going unverified. All 247 tests pass.
 
 ## When You're Done
 

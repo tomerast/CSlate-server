@@ -130,14 +130,21 @@ export async function agentReview(
     await trackCost(expert.agent, model, expert.tokenCost)
   }
 
-  // Short-circuit if Security Expert has any dimension 1-3 fail
+  // Determine short-circuit strategy:
+  // - Security critical → skip red-team (component is hostile, no point probing further)
+  //   but still run judge to verify the security findings aren't hallucinated
+  // - Quality/standards critical → still run red-team and judge (quality issues don't imply security risk)
   const securityResult = expertResults.find(r => r.agent === 'security-expert')
   const securityFailed = securityResult?.dimensions.some(d => d.tier === 'security' && d.verdict === 'fail')
 
   let redTeamResult: RedTeamResult
   let judgeResult: JudgeResult
 
-  if (!securityFailed) {
+  if (securityFailed) {
+    // Skip red-team — security already failed, no point in adversarial probing
+    await onProgress?.({ phase: 'red_team', status: 'skipped', detail: 'Security expert found critical failures — skipping adversarial analysis' })
+    redTeamResult = buildMinimalRedTeamResult()
+  } else {
     // ─── Phase 3: Red-Team ─────────────────────────────────────────────────
     await onProgress?.({ phase: 'red_team', status: 'in_progress', detail: 'Running adversarial attack simulation' })
     const phaseStart3 = Date.now()
@@ -152,27 +159,22 @@ export async function agentReview(
     phaseDurations.redTeam = Date.now() - phaseStart3
     await onProgress?.({ phase: 'red_team', status: 'complete', detail: `Threat level: ${redTeamResult.overallThreatLevel}, ${redTeamResult.exploitAttempts.length} exploit attempts in ${phaseDurations.redTeam}ms` })
     await trackCost('red_team', config.modelOverrides.redTeam ?? 'claude-sonnet-4-6', redTeamResult.tokenCost)
-
-    // ─── Phase 4: Judge ────────────────────────────────────────────────────
-    await onProgress?.({ phase: 'judge', status: 'in_progress', detail: 'Verifying findings and detecting hallucinations' })
-    const phaseStart4 = Date.now()
-    judgeResult = await withTimeout(
-      withRetry(
-        () => runJudge(ctx.files, ctx.manifest as Record<string, unknown>, staticResult, expertResults, redTeamResult, knowledgeBase, config),
-        'judge',
-      ),
-      PHASE_TIMEOUTS.judge,
-      'judge',
-    )
-    phaseDurations.judge = Date.now() - phaseStart4
-    await onProgress?.({ phase: 'judge', status: 'complete', detail: `${judgeResult.verifiedFindings.length} verified, ${judgeResult.rejectedFindings.length} rejected (${judgeResult.stats.hallucinated} hallucinated) in ${phaseDurations.judge}ms` })
-    await trackCost('judge', config.modelOverrides.judge ?? 'claude-sonnet-4-6', judgeResult.tokenCost)
-  } else {
-    await onProgress?.({ phase: 'red_team', status: 'skipped', detail: 'Security expert found critical failures' })
-    await onProgress?.({ phase: 'judge', status: 'skipped', detail: 'Security expert found critical failures' })
-    judgeResult = buildMinimalJudgeResult(expertResults)
-    redTeamResult = buildMinimalRedTeamResult()
   }
+
+  // ─── Phase 4: Judge — always runs to verify findings aren't hallucinated ──
+  await onProgress?.({ phase: 'judge', status: 'in_progress', detail: 'Verifying findings and detecting hallucinations' })
+  const phaseStart4 = Date.now()
+  judgeResult = await withTimeout(
+    withRetry(
+      () => runJudge(ctx.files, ctx.manifest as Record<string, unknown>, staticResult, expertResults, redTeamResult, knowledgeBase, config),
+      'judge',
+    ),
+    PHASE_TIMEOUTS.judge,
+    'judge',
+  )
+  phaseDurations.judge = Date.now() - phaseStart4
+  await onProgress?.({ phase: 'judge', status: 'complete', detail: `${judgeResult.verifiedFindings.length} verified, ${judgeResult.rejectedFindings.length} rejected (${judgeResult.stats.hallucinated} hallucinated) in ${phaseDurations.judge}ms` })
+  await trackCost('judge', config.modelOverrides.judge ?? 'claude-sonnet-4-6', judgeResult.tokenCost)
 
   // ─── Phase 5: Verdict ──────────────────────────────────────────────────
   await onProgress?.({ phase: 'verdict', status: 'in_progress', detail: 'Computing scores and rendering report' })
