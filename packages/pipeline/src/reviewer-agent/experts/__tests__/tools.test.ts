@@ -22,11 +22,11 @@ const mockStaticResult: StaticAnalysisResult = {
 }
 
 describe('buildExpertTools', () => {
-  it('returns 6 tools', () => {
+  it('returns 9 tools', () => {
     const tools = buildExpertTools(mockFiles, mockManifest, mockStaticResult)
-    expect(tools).toHaveLength(6)
+    expect(tools).toHaveLength(9)
     expect(tools.map(t => t.name)).toEqual([
-      'readFile', 'listFiles', 'searchCode', 'checkPattern', 'getManifest', 'getStaticAnalysisFindings',
+      'readFile', 'listFiles', 'searchCode', 'getManifest', 'analyzeComponent', 'getComponentContext', 'searchAST', 'checkPattern', 'getStaticAnalysisFindings',
     ])
   })
 

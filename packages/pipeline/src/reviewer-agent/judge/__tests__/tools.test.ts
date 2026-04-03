@@ -62,7 +62,7 @@ describe('readFile tool', () => {
     const tools = buildJudgeTools(FILES, [])
     const readFile = tools.find(t => t.name === 'readFile')!
     const result = await readFile.call({ filename: 'missing.ts' })
-    expect(result.data).toContain('Not found')
+    expect(result.data).toContain('File not found')
     expect(result.data).toContain('ui.tsx')
     expect(result.data).toContain('logic.ts')
   })
