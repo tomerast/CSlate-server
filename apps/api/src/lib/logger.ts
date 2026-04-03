@@ -1,8 +1,5 @@
-import pino from 'pino'
+export { createLogger } from '@cslate/logger'
+export type { Logger } from '@cslate/logger'
 
-export const log = pino({
-  level: process.env.LOG_LEVEL ?? 'info',
-  transport: process.env.NODE_ENV !== 'production'
-    ? { target: 'pino-pretty', options: { colorize: true } }
-    : undefined,
-})
+import { createLogger } from '@cslate/logger'
+export const log = createLogger('api')

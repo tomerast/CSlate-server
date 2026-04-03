@@ -9,6 +9,7 @@ import { ComponentManifestSchema } from '@cslate/pipeline'
 import { authMiddleware } from '../middleware/auth'
 import { rateLimitMiddleware } from '../middleware/rate-limit'
 import { streamUploadProgress } from '../lib/sse'
+import { log } from '../lib/logger'
 
 export const uploadRoutes = new Hono()
 
@@ -40,9 +41,17 @@ uploadRoutes.post(
 
     const storageKey = await storeUploadFiles(upload.id, files)
     await updateUpload(upload.id, { storageKey })
+    log.info({
+      uploadId: upload.id,
+      userId: user.id,
+      componentName: manifest.name,
+      fileCount: Object.keys(files).length,
+      totalSizeBytes: totalSize,
+    }, 'upload received')
 
     // Enqueue review job
     await enqueueReviewJob({ uploadId: upload.id })
+    log.info({ uploadId: upload.id, componentName: manifest.name }, 'review job enqueued')
 
     return c.json({ uploadId: upload.id, status: 'pending' }, 202)
   }
