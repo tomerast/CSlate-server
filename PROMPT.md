@@ -82,7 +82,7 @@ Work through these in order of impact. Each iteration should tackle ONE focused 
 ### Priority 2: Code Quality & Consistency
 - [x] Tool definitions across `experts/tools.ts`, `red-team/tools.ts`, `judge/tools.ts` share ~70% code. Extract shared tool implementations into a common module, then compose phase-specific tool sets from it
 - [ ] Type definitions in `types.ts` (675 lines) — split into logical groups: `dimensions.ts`, `phases.ts`, `config.ts`, `results.ts`
-- [ ] Ensure consistent error handling: every tool should validate inputs and return structured errors, not throw raw exceptions
+- [x] Ensure consistent error handling: every tool should validate inputs and return structured errors, not throw raw exceptions
 - [x] Standardize how agents are created — currently each expert/red-team/judge has slightly different setup. Create a shared `createReviewAgent(config)` factory
 - [x] Remove magic numbers — extract constants for iteration limits, result caps (50 match limit in searchCode), confidence thresholds *(MAX_SEARCH_RESULTS in shared-tools.ts, MAX_OUTPUT_TOKENS in create-review-agent.ts; remaining magic numbers are config defaults already named in DEFAULT_REVIEWER_CONFIG)*
 
@@ -100,7 +100,7 @@ This is where the real capability improvement lives. Study the reference prompts
 - [x] Add a `analyzeComponent` tool that gives agents a high-level summary of what the component does (renders, state, effects, event handlers) so they don't waste iterations understanding basics
 - [x] Add a `compareToManifest` tool that automatically diffs manifest claims against actual code behavior *(merged into analyzeComponent — it includes manifest vs code mismatch section)*
 - [ ] Improve `searchCode` tool — add support for AST-aware searches (find all function calls to X, find all state mutations, find all effect dependencies)
-- [ ] Add `getComponentContext` tool that extracts React-specific info: hooks used, props interface, render tree structure, event handlers
+- [x] Add `getComponentContext` tool that extracts React-specific info: hooks used, props interface, render tree structure, event handlers
 - [ ] Consider adding a `runInSandbox` tool concept for the red-team to actually test exploit attempts (even if simulated)
 
 ### Priority 5: Orchestration Improvements  
@@ -139,6 +139,7 @@ Iteration 4: Priority 2b — Created `create-review-agent.ts` factory, refactore
 Iteration 5: Priority 4a — Added `analyzeComponent` tool to shared-tools.ts leveraging Phase 1 AST data. Shows file overview, functions, bridge calls, DOM access, dynamic expressions, dependency issues, and manifest vs code mismatches. Added to expert and red-team tool sets. All 247 tests pass.
 Iteration 6: Priority 5 — Added timeout handling per phase (30s static, 3m experts, 2m red-team/judge), retry with exponential backoff for transient LLM errors (rate limits, timeouts, connection resets), improved progress callbacks with detail messages (finding counts, timing, specific agent info), and phase duration tracking. All 247 tests pass.
 Iteration 7: Priority 6 — Made tier weights configurable (added tierWeights to ReviewerConfig), improved report renderer with actionable fix suggestions per dimension (security, quality, standards), added review stats section to report, added dimension names to critical findings. All 247 tests pass.
+Iteration 8: Priority 2c + 4b — Added `getComponentContext` tool (hooks, props, effects, state, event handlers, memoization). Added input validation (regex error handling) to searchCode, checkPattern, and verifyFinding tools across all phases. All 247 tests pass.
 
 ## When You're Done
 

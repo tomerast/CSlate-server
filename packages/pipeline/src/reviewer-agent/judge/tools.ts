@@ -23,11 +23,16 @@ export function buildJudgeTools(
       call: async ({ filename, line, evidencePattern }: { filename: string; line?: number; evidencePattern: string }) => {
         const content = files[filename]
         if (!content) return { data: `File ${filename} not found — finding is hallucinated` }
-        const regex = new RegExp(evidencePattern, 'm')
+        let regex: RegExp
+        try {
+          regex = new RegExp(evidencePattern, 'm')
+        } catch (err) {
+          return { data: `Invalid evidence pattern: ${(err as Error).message}. Try a simpler search string.` }
+        }
         const found = regex.test(content)
         if (found && line) {
           const lines = content.split('\n')
-          const actualLine = content.split('\n').findIndex(l => new RegExp(evidencePattern, 'm').test(l)) + 1
+          const actualLine = lines.findIndex(l => regex.test(l)) + 1
           const context = lines.slice(Math.max(0, actualLine - 3), actualLine + 3).join('\n')
           return { data: `CONFIRMED at line ${actualLine}:\n${context}` }
         }

@@ -45,7 +45,12 @@ export function buildSearchCodeTool(files: Record<string, string>): CSTool {
     }),
     isReadOnly: () => true,
     call: async ({ pattern, filename }: { pattern: string; filename?: string }) => {
-      const regex = new RegExp(pattern, 'gm')
+      let regex: RegExp
+      try {
+        regex = new RegExp(pattern, 'gm')
+      } catch (err) {
+        return { data: `Invalid regex pattern: ${(err as Error).message}` }
+      }
       const results: string[] = []
       const targetFiles = filename ? { [filename]: files[filename] ?? '' } : files
       for (const [fname, content] of Object.entries(targetFiles)) {
@@ -67,6 +72,83 @@ export function buildGetManifestTool(manifest: Record<string, unknown>): CSTool 
     inputSchema: z.object({}),
     isReadOnly: () => true,
     call: async () => ({ data: JSON.stringify(manifest, null, 2) }),
+  })
+}
+
+export function buildGetComponentContextTool(files: Record<string, string>): CSTool {
+  return buildTool({
+    name: 'getComponentContext',
+    description: 'Extract React-specific information from the component: hooks used, props interface, event handlers, effects with dependencies, and render structure. Use this to understand React patterns and identify potential issues.',
+    inputSchema: z.object({}),
+    isReadOnly: () => true,
+    call: async () => {
+      const sections: string[] = []
+
+      for (const [fname, content] of Object.entries(files)) {
+        if (!fname.endsWith('.tsx') && !fname.endsWith('.jsx')) continue
+
+        const fileInfo: string[] = [`## ${fname}`]
+
+        // Hooks usage
+        const hookMatches = [...content.matchAll(/\b(use[A-Z]\w*)\s*[(<]/g)]
+        const hooks = [...new Set(hookMatches.map(m => m[1]))]
+        if (hooks.length > 0) {
+          fileInfo.push(`**Hooks:** ${hooks.join(', ')}`)
+        }
+
+        // Props interface
+        const propsMatch = content.match(/(?:interface|type)\s+(\w*Props\w*)\s*[={]([^}]*)}/)
+        if (propsMatch) {
+          fileInfo.push(`**Props type:** ${propsMatch[1]}`)
+          const propLines = propsMatch[2].split('\n').filter(l => l.trim()).map(l => `  ${l.trim()}`)
+          if (propLines.length > 0) fileInfo.push(propLines.join('\n'))
+        }
+
+        // useEffect with dependencies
+        const effectRegex = /useEffect\(\s*\(\)\s*=>\s*\{[^]*?\}\s*,\s*\[([^\]]*)\]\s*\)/g
+        const effects: string[] = []
+        let effectMatch
+        while ((effectMatch = effectRegex.exec(content)) !== null) {
+          const deps = effectMatch[1].trim()
+          const lineNum = content.substring(0, effectMatch.index).split('\n').length
+          const hasCleanup = effectMatch[0].includes('return ')
+          effects.push(`  - Line ${lineNum}: deps=[${deps || 'none'}]${hasCleanup ? '' : ' ⚠️ NO CLEANUP'}`)
+        }
+        if (effects.length > 0) {
+          fileInfo.push(`**Effects (${effects.length}):**`)
+          fileInfo.push(...effects)
+        }
+
+        // Event handlers
+        const handlerMatches = [...content.matchAll(/\b(on[A-Z]\w*|handle[A-Z]\w*)\s*[=:(]/g)]
+        const handlers = [...new Set(handlerMatches.map(m => m[1]))]
+        if (handlers.length > 0) {
+          fileInfo.push(`**Event handlers:** ${handlers.join(', ')}`)
+        }
+
+        // State variables
+        const stateMatches = [...content.matchAll(/\bconst\s+\[(\w+),\s*set(\w+)\]\s*=\s*useState/g)]
+        if (stateMatches.length > 0) {
+          fileInfo.push(`**State:** ${stateMatches.map(m => m[1]).join(', ')}`)
+        }
+
+        // Refs
+        const refMatches = [...content.matchAll(/\bconst\s+(\w+)\s*=\s*useRef/g)]
+        if (refMatches.length > 0) {
+          fileInfo.push(`**Refs:** ${refMatches.map(m => m[1]).join(', ')}`)
+        }
+
+        // Memoized values/callbacks
+        const memoMatches = [...content.matchAll(/\bconst\s+(\w+)\s*=\s*(useMemo|useCallback)/g)]
+        if (memoMatches.length > 0) {
+          fileInfo.push(`**Memoized:** ${memoMatches.map(m => `${m[1]} (${m[2]})`).join(', ')}`)
+        }
+
+        if (fileInfo.length > 1) sections.push(fileInfo.join('\n'))
+      }
+
+      return { data: sections.length > 0 ? sections.join('\n\n') : 'No React component files (.tsx/.jsx) found' }
+    },
   })
 }
 

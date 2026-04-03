@@ -1,7 +1,7 @@
 import { buildTool, type CSTool } from '@cslate/shared/agent'
 import { z } from 'zod'
 import type { StaticAnalysisResult } from '../types'
-import { buildReadFileTool, buildListFilesTool, buildSearchCodeTool, buildGetManifestTool, buildAnalyzeComponentTool } from '../shared-tools'
+import { buildReadFileTool, buildListFilesTool, buildSearchCodeTool, buildGetManifestTool, buildAnalyzeComponentTool, buildGetComponentContextTool } from '../shared-tools'
 
 export function buildExpertTools(
   files: Record<string, string>,
@@ -14,6 +14,7 @@ export function buildExpertTools(
     buildSearchCodeTool(files),
     buildGetManifestTool(manifest),
     buildAnalyzeComponentTool(files, manifest, staticResult),
+    buildGetComponentContextTool(files),
 
     buildTool({
       name: 'checkPattern',
@@ -27,7 +28,12 @@ export function buildExpertTools(
       call: async ({ filename, pattern, contextLines = 3 }: { filename: string; pattern: string; contextLines?: number }) => {
         const content = files[filename]
         if (!content) return { data: `File not found: ${filename}` }
-        const regex = new RegExp(pattern, 'm')
+        let regex: RegExp
+        try {
+          regex = new RegExp(pattern, 'm')
+        } catch (err) {
+          return { data: `Invalid regex pattern: ${(err as Error).message}` }
+        }
         const match = regex.exec(content)
         if (!match) return { data: 'Pattern not found' }
         const lines = content.split('\n')
