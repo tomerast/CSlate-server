@@ -81,7 +81,7 @@ Work through these in order of impact. Each iteration should tackle ONE focused 
 
 ### Priority 2: Code Quality & Consistency
 - [x] Tool definitions across `experts/tools.ts`, `red-team/tools.ts`, `judge/tools.ts` share ~70% code. Extract shared tool implementations into a common module, then compose phase-specific tool sets from it
-- [ ] Type definitions in `types.ts` (675 lines) — split into logical groups: `dimensions.ts`, `phases.ts`, `config.ts`, `results.ts`
+- [x] Type definitions in `types.ts` (675 lines) — split into logical groups: `dimensions.ts`, `phases.ts`, `config.ts`, `results.ts` *(split into types/ directory with 5 sub-files; types.ts kept as barrel re-export for zero import churn)*
 - [x] Ensure consistent error handling: every tool should validate inputs and return structured errors, not throw raw exceptions
 - [x] Standardize how agents are created — currently each expert/red-team/judge has slightly different setup. Create a shared `createReviewAgent(config)` factory
 - [x] Remove magic numbers — extract constants for iteration limits, result caps (50 match limit in searchCode), confidence thresholds *(MAX_SEARCH_RESULTS in shared-tools.ts, MAX_OUTPUT_TOKENS in create-review-agent.ts; remaining magic numbers are config defaults already named in DEFAULT_REVIEWER_CONFIG)*
@@ -141,6 +141,7 @@ Iteration 6: Priority 5 — Added timeout handling per phase (30s static, 3m exp
 Iteration 7: Priority 6 — Made tier weights configurable (added tierWeights to ReviewerConfig), improved report renderer with actionable fix suggestions per dimension (security, quality, standards), added review stats section to report, added dimension names to critical findings. All 247 tests pass.
 Iteration 8: Priority 2c + 4b — Added `getComponentContext` tool (hooks, props, effects, state, event handlers, memoization). Added input validation (regex error handling) to searchCode, checkPattern, and verifyFinding tools across all phases. All 247 tests pass.
 Iteration 9: Priority 5b — Improved short-circuit logic: security criticals now skip red-team but still run judge (anti-hallucination verification). Previously both were skipped, risking false positives going unverified. All 247 tests pass.
+Iteration 10: Priority 2c — Split types.ts (681 lines) into types/ directory with 5 sub-files (dimensions.ts, phases.ts, results.ts, learning.ts, config.ts). Original types.ts kept as barrel re-export for zero import churn across 47 import sites. All 247 tests pass.
 
 ## When You're Done
 
