@@ -1,6 +1,7 @@
 import { buildTool, type CSTool } from '@cslate/shared/agent'
 import { z } from 'zod'
 import type { StaticAnalysisResult } from '../types'
+import { buildReadFileTool, buildListFilesTool, buildSearchCodeTool, buildGetManifestTool, buildAnalyzeComponentTool, buildGetComponentContextTool, buildSearchASTTool } from '../shared-tools'
 
 export function buildExpertTools(
   files: Record<string, string>,
@@ -8,50 +9,13 @@ export function buildExpertTools(
   staticResult: StaticAnalysisResult,
 ): CSTool[] {
   return [
-    buildTool({
-      name: 'readFile',
-      description: 'Read the full content of a file from the submitted component package.',
-      inputSchema: z.object({
-        filename: z.string().describe('Filename to read, e.g. ui.tsx or logic/data.ts'),
-      }),
-      isReadOnly: () => true,
-      call: async ({ filename }) => {
-        const content = files[filename]
-        if (!content) return { data: `File not found: ${filename}. Available: ${Object.keys(files).join(', ')}` }
-        return { data: content }
-      },
-    }),
-
-    buildTool({
-      name: 'listFiles',
-      description: 'List all files in the submitted component package.',
-      inputSchema: z.object({}),
-      isReadOnly: () => true,
-      call: async () => ({ data: Object.keys(files).join('\n') }),
-    }),
-
-    buildTool({
-      name: 'searchCode',
-      description: 'Search for a pattern across all files. Returns file:line matches.',
-      inputSchema: z.object({
-        pattern: z.string().describe('Regex pattern to search for'),
-        filename: z.string().optional().describe('Limit to this file only'),
-      }),
-      isReadOnly: () => true,
-      call: async ({ pattern, filename }) => {
-        const regex = new RegExp(pattern, 'gm')
-        const results: string[] = []
-        const targetFiles = filename ? { [filename]: files[filename] ?? '' } : files
-        for (const [fname, content] of Object.entries(targetFiles)) {
-          content.split('\n').forEach((line, idx) => {
-            const matched = regex.test(line)
-            regex.lastIndex = 0
-            if (matched) results.push(`${fname}:${idx + 1}: ${line.trim()}`)
-          })
-        }
-        return { data: results.slice(0, 50).join('\n') || 'No matches found' }
-      },
-    }),
+    buildReadFileTool(files),
+    buildListFilesTool(files),
+    buildSearchCodeTool(files),
+    buildGetManifestTool(manifest),
+    buildAnalyzeComponentTool(files, manifest, staticResult),
+    buildGetComponentContextTool(files),
+    buildSearchASTTool(files, staticResult),
 
     buildTool({
       name: 'checkPattern',
@@ -62,10 +26,15 @@ export function buildExpertTools(
         contextLines: z.number().optional().default(3),
       }),
       isReadOnly: () => true,
-      call: async ({ filename, pattern, contextLines = 3 }) => {
+      call: async ({ filename, pattern, contextLines = 3 }: { filename: string; pattern: string; contextLines?: number }) => {
         const content = files[filename]
         if (!content) return { data: `File not found: ${filename}` }
-        const regex = new RegExp(pattern, 'm')
+        let regex: RegExp
+        try {
+          regex = new RegExp(pattern, 'm')
+        } catch (err) {
+          return { data: `Invalid regex pattern: ${(err as Error).message}` }
+        }
         const match = regex.exec(content)
         if (!match) return { data: 'Pattern not found' }
         const lines = content.split('\n')
@@ -78,21 +47,13 @@ export function buildExpertTools(
     }),
 
     buildTool({
-      name: 'getManifest',
-      description: 'Get the component manifest to check declared data sources, inputs, outputs.',
-      inputSchema: z.object({}),
-      isReadOnly: () => true,
-      call: async () => ({ data: JSON.stringify(manifest, null, 2) }),
-    }),
-
-    buildTool({
       name: 'getStaticAnalysisFindings',
       description: 'Get findings from Phase 1 static analysis. Use as starting point, then verify with other tools.',
       inputSchema: z.object({
         severity: z.enum(['critical', 'warning', 'all']).optional().default('all'),
       }),
       isReadOnly: () => true,
-      call: async ({ severity = 'all' }) => {
+      call: async ({ severity = 'all' }: { severity?: string }) => {
         const findings = severity === 'critical' ? staticResult.criticalFindings
           : severity === 'warning' ? staticResult.warnings
           : [...staticResult.criticalFindings, ...staticResult.warnings]

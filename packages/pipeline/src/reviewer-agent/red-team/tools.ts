@@ -2,6 +2,7 @@ import { buildTool } from '@cslate/shared/agent'
 import { z } from 'zod'
 import { BRIDGE_API_SPEC, PLATFORM_CONSTRAINTS } from './platform-spec'
 import type { StaticAnalysisResult, ExpertAgentResult } from '../types'
+import { buildReadFileTool, buildListFilesTool, buildSearchCodeTool, buildGetManifestTool, buildAnalyzeComponentTool, buildSearchASTTool } from '../shared-tools'
 
 export function buildRedTeamTools(
   files: Record<string, string>,
@@ -10,49 +11,12 @@ export function buildRedTeamTools(
   expertResults: ExpertAgentResult[],
 ) {
   return [
-    buildTool({
-      name: 'readFile',
-      description: 'Read file content to find attack vectors.',
-      inputSchema: z.object({ filename: z.string() }),
-      isReadOnly: () => true,
-      call: async ({ filename }) => {
-        const content = files[filename]
-        return { data: content ?? `File not found: ${filename}. Available: ${Object.keys(files).join(', ')}` }
-      },
-    }),
-
-    buildTool({
-      name: 'listFiles',
-      description: 'List all submitted files.',
-      inputSchema: z.object({}),
-      isReadOnly: () => true,
-      call: async () => ({ data: Object.keys(files).join('\n') }),
-    }),
-
-    buildTool({
-      name: 'searchCode',
-      description: 'Search for patterns that might indicate attack vectors.',
-      inputSchema: z.object({
-        pattern: z.string(),
-        filename: z.string().optional(),
-      }),
-      isReadOnly: () => true,
-      call: async ({ pattern, filename }) => {
-        const regex = new RegExp(pattern, 'gm')
-        const results: string[] = []
-        const targetFiles = filename ? { [filename]: files[filename] ?? '' } : files
-        for (const [fname, content] of Object.entries(targetFiles)) {
-          const lines = content.split('\n')
-          lines.forEach((line, idx) => {
-            if (regex.test(line)) {
-              results.push(`${fname}:${idx + 1}: ${line.trim()}`)
-              regex.lastIndex = 0
-            }
-          })
-        }
-        return { data: results.join('\n') || 'No matches' }
-      },
-    }),
+    buildReadFileTool(files),
+    buildListFilesTool(files),
+    buildSearchCodeTool(files),
+    buildGetManifestTool(manifest),
+    buildAnalyzeComponentTool(files, manifest, staticResult),
+    buildSearchASTTool(files, staticResult),
 
     buildTool({
       name: 'getBridgeAPISpec',
@@ -83,14 +47,6 @@ export function buildRedTeamTools(
           2,
         ),
       }),
-    }),
-
-    buildTool({
-      name: 'getManifest',
-      description: 'Get the component manifest to identify declared vs actual behavior mismatches.',
-      inputSchema: z.object({}),
-      isReadOnly: () => true,
-      call: async () => ({ data: JSON.stringify(manifest, null, 2) }),
     }),
   ]
 }

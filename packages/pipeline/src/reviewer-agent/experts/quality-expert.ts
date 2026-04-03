@@ -1,8 +1,8 @@
-import { toAISDKTools, runSubAgent, stripFences } from '@cslate/shared/agent'
 import type { AgentRegistry } from '@cslate/shared/agent'
 import type { ExpertAgentResult, StaticAnalysisResult, ReviewerKnowledgeBase, ReviewerConfig } from '../types'
 import { buildExpertTools } from './tools'
 import { QUALITY_EXPERT_SYSTEM_PROMPT } from './prompts'
+import { runReviewAgent } from '../create-review-agent'
 
 export async function runQualityExpert(
   files: Record<string, string>,
@@ -12,30 +12,18 @@ export async function runQualityExpert(
   config: ReviewerConfig,
   registry: AgentRegistry,
 ): Promise<ExpertAgentResult> {
-  const tools = buildExpertTools(files, manifest, staticResult)
-  const modelId = config.modelOverrides?.qualityExpert ?? 'anthropic:claude-sonnet-4-6'
-
-  let systemPrompt = QUALITY_EXPERT_SYSTEM_PROMPT
-  try {
-    const { injectKnowledge } = await import('../learning/knowledge-injector')
-    systemPrompt = injectKnowledge(systemPrompt, knowledgeBase, [4, 5, 6, 7])
-  } catch { /* learning module not yet available */ }
-
   const fileList = Object.keys(files).join(', ')
   const staticSummary = `Static analysis found: ${staticResult.criticalFindings.length} critical, ${staticResult.warnings.length} warnings`
 
-  const result = await runSubAgent({
-    modelId,
-    registry,
-    system: systemPrompt,
-    prompt: `Review this component.\n\nFiles: ${fileList}\n${staticSummary}\n\nStart with getStaticAnalysisFindings(), then readFile each source file, then investigate with searchCode and checkPattern.`,
-    tools: toAISDKTools(tools),
+  return runReviewAgent<ExpertAgentResult>({
+    agentName: 'quality-expert',
+    systemPrompt: QUALITY_EXPERT_SYSTEM_PROMPT,
+    tools: buildExpertTools(files, manifest, staticResult),
+    modelId: config.modelOverrides?.qualityExpert ?? 'anthropic:claude-sonnet-4-6',
     maxSteps: config.maxExpertAgentIterations ?? 12,
-    maxOutputTokens: 16_000,
-  })
-
-  const parsed = JSON.parse(stripFences(result.text)) as ExpertAgentResult
-  parsed.tokenCost = { input: result.usage.inputTokens, output: result.usage.outputTokens }
-  parsed.iterationsUsed = result.steps
-  return parsed
+    knowledgeDimensions: [4, 5, 6, 7],
+    knowledgeBase,
+    buildPrompt: () => `Review this component.\n\nFiles: ${fileList}\n${staticSummary}\n\nStart with getStaticAnalysisFindings(), then readFile each source file, then investigate with searchCode and checkPattern.`,
+    parseResult: result => result,
+  }, registry)
 }

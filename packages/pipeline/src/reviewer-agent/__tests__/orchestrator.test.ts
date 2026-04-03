@@ -153,6 +153,7 @@ const makeJudgeResult = (): JudgeResult => ({
 const makeVerdict = (decision: 'approved' | 'rejected' = 'approved'): ReviewVerdict => ({
   decision,
   decisionConfidence: 95,
+  decisionConfidenceInterval: { lower: 70, upper: 100, width: 30 },
   decisionReason: decision === 'approved' ? 'All dimensions passed' : 'Critical issues found',
   scorecard: [],
   findings: [],
@@ -248,14 +249,14 @@ describe('agentReview orchestrator', () => {
   })
 
   describe('short-circuit: security expert fail', () => {
-    it('skips red-team and judge but still runs verdict', async () => {
+    it('skips red-team but still runs judge and verdict', async () => {
       vi.mocked(runExpertAgents).mockResolvedValue(makeExpertResults(true /* securityFail */))
 
       const ctx = makeCtx()
       await agentReview(ctx)
 
       expect(runRedTeam).not.toHaveBeenCalled()
-      expect(runJudge).not.toHaveBeenCalled()
+      expect(runJudge).toHaveBeenCalledOnce()
       expect(computeVerdict).toHaveBeenCalledOnce()
     })
   })
@@ -277,7 +278,7 @@ describe('agentReview orchestrator', () => {
       }
     })
 
-    it('fires skipped for red_team and judge when security fails', async () => {
+    it('fires skipped for red_team but complete for judge when security fails', async () => {
       vi.mocked(runExpertAgents).mockResolvedValue(makeExpertResults(true /* securityFail */))
 
       const ctx = makeCtx()
@@ -287,9 +288,9 @@ describe('agentReview orchestrator', () => {
       await agentReview(ctx, onProgress)
 
       const redTeamSkipped = progressEvents.find(e => e.phase === 'red_team' && e.status === 'skipped')
-      const judgeSkipped = progressEvents.find(e => e.phase === 'judge' && e.status === 'skipped')
+      const judgeComplete = progressEvents.find(e => e.phase === 'judge' && e.status === 'complete')
       expect(redTeamSkipped).toBeDefined()
-      expect(judgeSkipped).toBeDefined()
+      expect(judgeComplete).toBeDefined()
     })
 
     it('does not fire progress for phases after static short-circuit', async () => {

@@ -1,21 +1,15 @@
 import { z } from 'zod'
 import { buildTool } from '@cslate/shared/agent'
 import type { ExpertFinding } from '../types'
+import { buildReadFileTool, buildSearchCodeTool } from '../shared-tools'
 
 export function buildJudgeTools(
   files: Record<string, string>,
   allFindings: ExpertFinding[],
 ) {
   return [
-    buildTool({
-      name: 'readFile',
-      description: 'Read a file to verify whether a finding actually exists in the code.',
-      inputSchema: z.object({ filename: z.string() }),
-      isReadOnly: () => true,
-      call: async ({ filename }) => ({
-        data: files[filename] ?? `Not found. Available: ${Object.keys(files).join(', ')}`,
-      }),
-    }),
+    buildReadFileTool(files),
+    buildSearchCodeTool(files),
 
     buildTool({
       name: 'verifyFinding',
@@ -26,14 +20,19 @@ export function buildJudgeTools(
         evidencePattern: z.string().describe('Pattern from the finding evidence to search for'),
       }),
       isReadOnly: () => true,
-      call: async ({ filename, line, evidencePattern }) => {
+      call: async ({ filename, line, evidencePattern }: { filename: string; line?: number; evidencePattern: string }) => {
         const content = files[filename]
         if (!content) return { data: `File ${filename} not found — finding is hallucinated` }
-        const regex = new RegExp(evidencePattern, 'm')
+        let regex: RegExp
+        try {
+          regex = new RegExp(evidencePattern, 'm')
+        } catch (err) {
+          return { data: `Invalid evidence pattern: ${(err as Error).message}. Try a simpler search string.` }
+        }
         const found = regex.test(content)
         if (found && line) {
           const lines = content.split('\n')
-          const actualLine = content.split('\n').findIndex(l => new RegExp(evidencePattern, 'm').test(l)) + 1
+          const actualLine = lines.findIndex(l => regex.test(l)) + 1
           const context = lines.slice(Math.max(0, actualLine - 3), actualLine + 3).join('\n')
           return { data: `CONFIRMED at line ${actualLine}:\n${context}` }
         }
@@ -48,32 +47,12 @@ export function buildJudgeTools(
         severity: z.enum(['critical', 'warning', 'info', 'all']).default('all'),
       }),
       isReadOnly: () => true,
-      call: async ({ severity }) => ({
+      call: async ({ severity }: { severity: string }) => ({
         data: JSON.stringify(
           severity === 'all' ? allFindings : allFindings.filter(f => f.severity === severity),
           null, 2,
         ),
       }),
-    }),
-
-    buildTool({
-      name: 'searchCode',
-      description: 'Search for a pattern across all files to find evidence.',
-      inputSchema: z.object({ pattern: z.string() }),
-      isReadOnly: () => true,
-      call: async ({ pattern }) => {
-        const results: string[] = []
-        for (const [fname, content] of Object.entries(files)) {
-          const regex = new RegExp(pattern, 'gm')
-          content.split('\n').forEach((lineText, idx) => {
-            if (regex.test(lineText)) {
-              results.push(`${fname}:${idx + 1}: ${lineText.trim()}`)
-              regex.lastIndex = 0
-            }
-          })
-        }
-        return { data: results.join('\n') || 'No matches found' }
-      },
     }),
   ]
 }

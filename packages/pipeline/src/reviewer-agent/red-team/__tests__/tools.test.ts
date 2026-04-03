@@ -129,7 +129,7 @@ describe('buildRedTeamTools', () => {
     it('returns "No matches" when pattern not found', async () => {
       const tool = tools.find(t => t.name === 'searchCode')!
       const result = await tool.call({ pattern: 'XYZNOTFOUND' })
-      expect(result.data).toBe('No matches')
+      expect(result.data).toBe('No matches found')
     })
 
     it('searches only specified file when filename is given', async () => {

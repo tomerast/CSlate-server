@@ -19,6 +19,7 @@ function makeDimScore(overrides: Partial<DimensionScore> = {}): DimensionScore {
     tier: 'quality',
     verdict: 'pass',
     confidence: 100,
+    confidenceInterval: { lower: 75, upper: 100, width: 25 },
     weight: 1,
     weightedScore: 1,
     summary: 'ok',
