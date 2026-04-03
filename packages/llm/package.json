@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.0",
+    "@cslate/logger": "workspace:*",
     "openai": "^4.77.0"
   },
   "devDependencies": {
