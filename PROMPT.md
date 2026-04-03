@@ -83,8 +83,8 @@ Work through these in order of impact. Each iteration should tackle ONE focused 
 - [x] Tool definitions across `experts/tools.ts`, `red-team/tools.ts`, `judge/tools.ts` share ~70% code. Extract shared tool implementations into a common module, then compose phase-specific tool sets from it
 - [ ] Type definitions in `types.ts` (675 lines) — split into logical groups: `dimensions.ts`, `phases.ts`, `config.ts`, `results.ts`
 - [ ] Ensure consistent error handling: every tool should validate inputs and return structured errors, not throw raw exceptions
-- [ ] Standardize how agents are created — currently each expert/red-team/judge has slightly different setup. Create a shared `createReviewAgent(config)` factory
-- [ ] Remove magic numbers — extract constants for iteration limits, result caps (50 match limit in searchCode), confidence thresholds
+- [x] Standardize how agents are created — currently each expert/red-team/judge has slightly different setup. Create a shared `createReviewAgent(config)` factory
+- [x] Remove magic numbers — extract constants for iteration limits, result caps (50 match limit in searchCode), confidence thresholds *(MAX_SEARCH_RESULTS in shared-tools.ts, MAX_OUTPUT_TOKENS in create-review-agent.ts; remaining magic numbers are config defaults already named in DEFAULT_REVIEWER_CONFIG)*
 
 ### Priority 3: Prompt Engineering (HIGHEST IMPACT)
 This is where the real capability improvement lives. Study the reference prompts then rewrite ours.
@@ -135,6 +135,7 @@ This is where the real capability improvement lives. Study the reference prompts
 Iteration 1: Priority 1 — Wired up `loadKnowledgeBase()` to query real DB tables (reviewerStandards, reviewerPatterns, reviewerDimensionWeights), removed error-swallowing try/catch in all 3 expert agents replacing with direct imports of `injectKnowledge`, verified all barrel files and imports are clean. All 247 tests pass.
 Iteration 2: Priority 2a — Extracted shared tools (readFile, listFiles, searchCode, getManifest) into `shared-tools.ts`, refactored all 3 tool files to compose from shared + phase-specific tools. All 247 tests pass.
 Iteration 3: Priority 3 — Complete prompt engineering overhaul. Rewrote all 5 agent prompts (security, quality, standards, red-team, judge) with structured methodology, severity tables, few-shot examples, shared output schema, and critical rules sections. All 247 tests pass.
+Iteration 4: Priority 2b — Created `create-review-agent.ts` factory, refactored all 5 agents (3 experts + red-team + judge) to use it. Extracted MAX_OUTPUT_TOKENS constant. All 247 tests pass.
 
 ## When You're Done
 
