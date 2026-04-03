@@ -8,51 +8,67 @@ let _anthropic: Anthropic | null = null
 let _openai: OpenAI | null = null
 let _embedding: OpenAI | null = null
 
-// ─── Gateway Resolution ───────────────────────────────────────────────────────
+// ─── Config ───────────────────────────────────────────────────────────────────
 //
-// Priority order for base URL resolution:
-//   1. AI_GATEWAY_URL  — Vercel AI Gateway (appends /anthropic or /openai per provider)
-//   2. ANTHROPIC_BASE_URL / OPENAI_BASE_URL — explicit per-provider override
-//      (use for Vertex AI proxy, OpenRouter, or any OpenAI-compatible endpoint)
-//   3. Direct provider API (default)
+// Gateway mode  (AI_GATEWAY_URL is set)
+//   A single AI_GATEWAY_KEY authenticates all providers.
+//   Anthropic calls → ${gateway}/anthropic   (native claude-* model names)
+//   OpenAI calls    → ${gateway}/openai      (native gpt-* / text-embedding-* names)
+//   Embedding calls → ${gateway}/openai      (supports provider/model e.g. alibaba/qwen3-*)
+//
+// Direct mode  (no gateway)
+//   ANTHROPIC_API_KEY  — Anthropic direct
+//   OPENAI_API_KEY     — OpenAI direct
+//   EMBEDDING_BASE_URL + EMBEDDING_API_KEY — custom embedding provider (e.g. DashScope)
+//   Falls back to OPENAI_API_KEY for embeddings if EMBEDDING_API_KEY is unset.
 
-function resolveAnthropicBaseUrl(): string | undefined {
-  const gateway = process.env.AI_GATEWAY_URL
-  if (gateway) return `${gateway.replace(/\/$/, '')}/anthropic`
-  return process.env.ANTHROPIC_BASE_URL || undefined
+function gatewayUrl(): string | undefined {
+  return process.env.AI_GATEWAY_URL?.replace(/\/$/, '')
 }
 
-function resolveOpenAIBaseUrl(): string | undefined {
-  const gateway = process.env.AI_GATEWAY_URL
-  if (gateway) return `${gateway.replace(/\/$/, '')}/openai`
-  return process.env.OPENAI_BASE_URL || undefined
+function isGatewayMode(): boolean {
+  return !!gatewayUrl()
 }
 
 export function getAnthropic(): Anthropic {
   if (!_anthropic) {
-    const baseURL = resolveAnthropicBaseUrl()
-    const via = process.env.AI_GATEWAY_URL ? 'vercel-gateway' : baseURL ? 'custom-base-url' : 'direct'
-    log.debug({ via, baseURL }, 'anthropic client init')
-    _anthropic = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY,
-      ...(baseURL ? { baseURL } : {}),
-    })
+    const gw = gatewayUrl()
+    const apiKey = gw ? process.env.AI_GATEWAY_KEY : process.env.ANTHROPIC_API_KEY
+    const baseURL = gw ? `${gw}/anthropic` : undefined
+    log.debug({ via: gw ? 'gateway' : 'direct', baseURL }, 'anthropic client init')
+    _anthropic = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) })
   }
   return _anthropic
 }
 
 export function getOpenAI(): OpenAI {
   if (!_openai) {
-    const baseURL = resolveOpenAIBaseUrl()
-    const via = process.env.AI_GATEWAY_URL ? 'vercel-gateway' : baseURL ? 'custom-base-url' : 'direct'
-    log.debug({ via, baseURL }, 'openai client init')
-    _openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      ...(baseURL ? { baseURL } : {}),
-    })
+    const gw = gatewayUrl()
+    const apiKey = gw ? process.env.AI_GATEWAY_KEY : process.env.OPENAI_API_KEY
+    const baseURL = gw ? `${gw}/openai` : undefined
+    log.debug({ via: gw ? 'gateway' : 'direct', baseURL }, 'openai client init')
+    _openai = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) })
   }
   return _openai
 }
+
+function getEmbeddingClient(): OpenAI {
+  if (!_embedding) {
+    const gw = gatewayUrl()
+    // Gateway mode: route through gateway's OpenAI-compatible endpoint
+    // Direct mode: use EMBEDDING_BASE_URL if set (e.g. DashScope), else OpenAI
+    const baseURL = gw ? `${gw}/openai` : (process.env.EMBEDDING_BASE_URL || undefined)
+    const apiKey = gw
+      ? process.env.AI_GATEWAY_KEY
+      : (process.env.EMBEDDING_API_KEY || process.env.OPENAI_API_KEY)
+    const via = gw ? 'gateway' : baseURL ? 'custom' : 'openai'
+    log.debug({ via, baseURL }, 'embedding client init')
+    _embedding = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) })
+  }
+  return _embedding
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function callAnthropic(options: {
   model: string
@@ -85,30 +101,6 @@ export async function callAnthropic(options: {
   const block = message.content[0]
   if (!block || block.type !== 'text') throw new Error('Unexpected LLM response type')
   return block.text
-}
-
-// ─── Embedding Client ─────────────────────────────────────────────────────────
-//
-// Separate from the main OpenAI client so embeddings can use a different
-// provider (e.g. DashScope for Qwen3) without affecting completion calls.
-//
-// EMBEDDING_BASE_URL  — provider base URL (default: OpenAI)
-//   DashScope (Qwen):  https://dashscope.aliyuncs.com/compatible-mode/v1
-//   OpenRouter:        https://openrouter.ai/api/v1
-// EMBEDDING_API_KEY   — provider API key (falls back to OPENAI_API_KEY)
-// EMBEDDING_MODEL     — model name (default: text-embedding-3-small)
-//   Qwen3:             qwen3-embedding-4b  (via DashScope)
-//                      alibaba/qwen3-embedding-4b  (via OpenRouter)
-
-function getEmbeddingClient(): OpenAI {
-  if (!_embedding) {
-    const baseURL = process.env.EMBEDDING_BASE_URL || undefined
-    const apiKey = process.env.EMBEDDING_API_KEY || process.env.OPENAI_API_KEY
-    const via = baseURL ? baseURL.replace(/https?:\/\//, '').split('/')[0] : 'openai'
-    log.debug({ via, baseURL }, 'embedding client init')
-    _embedding = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) })
-  }
-  return _embedding
 }
 
 export async function getEmbedding(text: string): Promise<number[]> {
