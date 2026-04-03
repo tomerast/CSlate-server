@@ -138,8 +138,34 @@ CSlate-Server needs a TypeScript backend framework and data infrastructure to ha
 
 - **Hosting:** Neon (free tier, auto-scaling to zero, native pgvector, database branching for testing migrations)
 - **Vector index:** HNSW with cosine distance
-- **Embedding dimensions:** 1536 (OpenAI text-embedding-3-small or equivalent)
-- **Connection pooling:** pg Pool for MVP, PgBouncer for production multi-instance
+- **Embedding dimensions:** 1536 (OpenAI text-embedding-3-small)
+- **Connection pooling:** Neon's built-in PgBouncer (transaction mode) for all connections
+
+### Neon Cold Start Mitigation
+
+Neon free-tier suspends after ~5 minutes of inactivity. Cold start is 500ms–2s. For an always-on API server this is unacceptable.
+
+**Solution:**
+1. Use **Neon's connection pooler endpoint** (PgBouncer, transaction mode) for all app connections — this keeps Neon's proxy warm even if the compute is cold
+2. Add a **health-check query** in the API server's startup sequence: `SELECT 1` on boot wakes Neon if suspended
+3. The API's Fly.io machine runs continuously (`auto_stop_machines = false`) — it will issue queries regularly, keeping Neon warm under normal load
+4. If cold start becomes an issue at low traffic, add a scheduled ping (`setInterval(() => db.execute(sql`SELECT 1`), 4 * 60 * 1000)`)
+
+**Neon connection string:** Use the **pooled endpoint** (`-pooler` suffix) in `DATABASE_URL`. Use the **direct endpoint** only for migrations (Drizzle Kit).
+
+### Connection Pooling Budget
+
+Neon free tier allows ~10 concurrent connections on the direct endpoint. With pooler (PgBouncer transaction mode), thousands of concurrent queries map to far fewer Postgres connections.
+
+| Process | Connections to pooler | Notes |
+|---|---|---|
+| API server | 5 | Drizzle connection pool |
+| Worker (per instance) | 3 | Pipeline + pg-boss consumer |
+| pg-boss internal | 2 | Boss uses its own connections |
+| Migration tool | 1 | Direct endpoint, not pooler |
+| **Total per worker instance** | **~10** | Well within Neon free tier |
+
+At 3 worker instances: ~19 pooler connections → mapped to ~5-8 real Postgres connections via PgBouncer. Safe.
 
 ### Scale expectations:
 | Components | Query latency | Storage (vectors only) |
@@ -175,15 +201,36 @@ For the async AI review pipeline:
 
 **Recommendation:** Start with **pg-boss** to keep infrastructure simple (just Postgres). Migrate to BullMQ if we need advanced job orchestration features later.
 
+## LLM Vendor Strategy
+
+**Anthropic-only for all LLM calls.** No OpenAI for review or generation tasks.
+
+- **Review LLM (security, quality):** `claude-sonnet-4-6` — best code comprehension, security analysis, context reasoning
+- **Review LLM (cataloging, lower-stakes):** `claude-haiku-4-5-20251001` — 10× cheaper, sufficient for summary generation and tag enrichment
+- **Embeddings:** `claude-3-haiku-20240307` via Voyage AI OR `text-embedding-3-small` via OpenAI
+
+**On embeddings:** Anthropic does not offer a standalone embedding API. The two options:
+1. **Voyage AI** (Anthropic-affiliated) — `voyage-code-3` is optimized for code, excellent quality. Single vendor if you count Voyage as Anthropic-adjacent.
+2. **OpenAI text-embedding-3-small** — cost-effective, proven, widely used. One more API key but minimal operational complexity.
+
+**Decision: Use OpenAI text-embedding-3-small for embeddings** — Voyage AI is not yet widely production-tested, and embeddings are not a differentiator (same model for both query and document). This is the only OpenAI API call in the entire system. If Voyage matures or Anthropic releases embeddings, migrate with a single config change.
+
+**Why not GPT-4o for review:** Claude claude-sonnet-4-6 outperforms GPT-4o on code review, security analysis, and context reasoning. All review LLM calls use Anthropic. No OpenAI LLM calls.
+
+**Cost control:** See Decision 003 for per-stage LLM cost analysis. At 1,000 uploads/day, estimated ~$660/month total LLM cost using this tiered strategy.
+
 ## Full Stack Summary
 
 | Layer | Technology | Why |
 |---|---|---|
 | Framework | Hono | RPC type safety with Electron client, lightweight, modern |
-| Runtime | Node.js | Ecosystem maturity, all npm packages work. Bun possible later |
+| Runtime | Node.js 22 LTS | Ecosystem maturity, all npm packages work. Bun possible later |
 | ORM | Drizzle | First-class pgvector, best TS inference, SQL-like control |
 | Database | PostgreSQL + pgvector (Neon) | Semantic search, auto-scaling, free tier |
+| DB Pooling | Neon PgBouncer (built-in) | Transaction-mode pooling, keeps compute warm |
 | File storage | Cloudflare R2 (S3-compatible) | No egress fees, purpose-built for files |
 | Job queue | pg-boss | Postgres-backed, no Redis needed for MVP |
 | Logging | Pino (manual integration) | Fastest Node.js logger, structured JSON |
-| Validation | Zod | Single source for runtime validation + RPC types + OpenAPI |
+| Validation | Zod | Single source for runtime validation + RPC types |
+| Review LLM | Anthropic claude-sonnet-4-6 | Best code comprehension, switchable via env |
+| Embedding | OpenAI text-embedding-3-small | Cost-effective, 1536 dims |

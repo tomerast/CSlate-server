@@ -1,7 +1,7 @@
 # Decision 003: Review Agent Pipeline — Full Deep Review
 
 **Date:** 2026-03-28
-**Status:** Accepted
+**Status:** Accepted (updated: canonical stage names, TypeScript stub env, LLM cost analysis, incremental retry)
 
 ## Context
 
@@ -11,112 +11,230 @@ When a component is uploaded from the client to CSlate-Server, a review agent mu
 
 **Every component undergoes a comprehensive, multi-stage review before it is discoverable by other users.** No shortcuts. No "good enough." The shared DB is the crown jewel of CSlate.
 
+## Canonical Stage Names
+
+These names are the contract between client and server (defined in `@cslate/shared`):
+
+```typescript
+type ReviewStage =
+  | 'manifest_validation'    // Fast — Zod + file structure + TypeScript shape
+  | 'security_scan'          // Fast + LLM — static analysis + obfuscation detection
+  | 'dependency_check'       // Fast — npm allowlist + CSlate dep existence
+  | 'quality_review'         // LLM — code quality + context + dataSources + bridge usage
+  | 'test_render'            // Fast — TypeScript compilation (no headless browser)
+  | 'cataloging'             // LLM — summary, category, ai hints, tag enrichment
+  | 'embedding'              // Fast — vector generation + storage
+```
+
 ## Review Pipeline Stages
 
-### Stage 1: Structural Validation
-Automated checks (no LLM needed):
-- Package conforms to the expected directory structure
-- `manifest.json` exists and is valid JSON with all required fields
-- All files referenced in `manifest.files` actually exist
-- TypeScript compiles without errors
-- No circular dependencies
-- `index.ts` barrel exports match what's declared
-- File naming follows conventions (`{name}.tsx`, `{name}.hook.ts`, etc.)
+### Stage 1: `manifest_validation` (no LLM)
+Automated checks:
+- `manifest.json` is valid JSON, parses against `@cslate/shared` `ComponentManifest` Zod schema
+- All files declared in `manifest.files[]` exist in the uploaded package
+- File naming conventions: `ui.tsx`, `logic.ts`, `types.ts`, `context.md`, `index.ts`
+- `manifest.name`, `manifest.description`, `manifest.tags[]` are non-empty
+- `manifest.defaultSize` and `manifest.minSize` are positive integers (Decision 013)
+- `manifest.dataSources[].baseUrl` is present if dataSources are declared
 
-**Outcome:** Reject immediately if structural validation fails. Return specific errors to the client so the user/AI can fix.
+**Outcome:** Reject immediately with field-level Zod errors. Client AI can auto-fix and re-upload.
 
-### Stage 2: Security Analysis
-Automated + LLM-assisted:
-- **Static analysis** for known dangerous patterns:
-  - No `eval()`, `Function()`, `innerHTML` with dynamic content
-  - No direct DOM manipulation bypassing React
-  - No network calls (`fetch`, `XMLHttpRequest`, `WebSocket`) unless declared in manifest
-  - No filesystem access (`fs`, `path`, `child_process`)
-  - No `window.location` redirects or `document.cookie` access
-  - No obfuscated code or encoded payloads
-  - No dynamic `import()` from external URLs
-- **LLM review** for subtle security issues:
-  - Does the code do what it claims? Or does it have hidden behavior?
-  - Are there data exfiltration vectors disguised as normal logic?
-  - XSS vulnerabilities in rendered content
-  - Injection risks in any user-facing inputs
+### Stage 2: `security_scan` (static analysis + LLM)
+**Static patterns (regex scan on all .ts/.tsx files):**
 
-**Outcome:** Reject with detailed security report if any issues found. Zero tolerance.
+Blocked patterns:
+```
+fetch(               → use bridge.fetch() only
+XMLHttpRequest       → blocked
+new WebSocket(       → use bridge.subscribe() only
+navigator.sendBeacon → blocked
+new EventSource(     → blocked
+eval(                → blocked
+new Function(        → blocked
+Function(            → blocked
+document.cookie      → blocked
+localStorage         → blocked
+sessionStorage       → blocked
+window.fetch         → blocked
+globalThis.fetch     → blocked
+require("child_process") → blocked
+require("fs")        → blocked
+import("electron"    → blocked
+innerHTML            → blocked (dynamic content risk)
+```
 
-### Stage 3: Code Quality Review
-LLM-powered deep review:
-- **UI/Logic separation**: Is business logic properly in `.hook.ts`? Is the `.tsx` file a pure presenter?
-- **Type safety**: Are TypeScript types complete and correct? No `any` types, no type assertions without justification?
-- **Component patterns**: Does it follow compound component pattern correctly (if applicable)? Are props well-designed?
-- **Variants**: Are visual variants defined as structured data, not scattered conditionals?
-- **Naming**: Are variable/function/component names clear and consistent?
-- **Performance**: Any obvious performance issues? (unnecessary re-renders, missing memoization for expensive computations, large inline objects)
-- **Accessibility**: Basic a11y checks (semantic HTML, ARIA labels, keyboard navigation)
-- **Error handling**: Does the component handle edge cases (empty data, loading states, errors)?
-- **Clean code**: No dead code, no commented-out code, no console.logs, no TODO/FIXME left behind
+Allowed network patterns:
+```
+bridge.fetch(        → ✓ declared data source only
+bridge.subscribe(    → ✓ declared data source only
+bridge.getConfig(    → ✓ user config access
+```
 
-**Outcome:** If quality issues are found, the agent generates specific improvement suggestions. Minor issues → auto-fix and continue. Major issues → reject with actionable feedback.
+**URL validation (`dataSources[].baseUrl`):**
+- Tier 1 (known-safe domains): auto-approve, faster review
+- Tier 2 (unknown): LLM judges legitimacy, approve-with-flag if likely legitimate
+- Tier 3 (blocked): `localhost`, IP addresses, `file://`, internal network ranges (10.x, 192.168.x, 172.16-31.x) → auto-reject
 
-### Stage 4: Context Verification
-LLM reads `context/decisions.md` and verifies:
-- Does the code actually implement what the user requested?
-- Do the decisions documented match the code's behavior?
-- Are there requirements mentioned in context that aren't reflected in code?
-- Are there code behaviors not explained by the context?
+**LLM review (obfuscation detection):**
+- Variable aliasing to build `fetch`: `const f = window['fet' + 'ch']`
+- Dynamic property access: `window[atob('ZmV0Y2g=')]`
+- Eval-based bypass: `eval('fe' + 'tch("...")')`
+- Hidden behavior not matching component's stated purpose
+- Hardcoded sensitive values (API keys, tokens)
 
-**Outcome:** Flag discrepancies. If the code doesn't match stated intent, reject with explanation.
+**Outcome:** Reject with structured issue list `{ severity, file, line, pattern, message, fix }`.
 
-### Stage 5: Manifest Enrichment
-LLM enhances the manifest for better discoverability:
-- Verify/improve the `description` for clarity and searchability
-- Verify/add `tags` — ensure comprehensive keyword coverage
-- Verify `category` and `domain` assignments
-- Verify `anatomy` accurately reflects the component's structure
-- Verify `props` section is complete (no missing props, slots, or customization points)
-- Generate/improve `ai.modificationHints` — specific, actionable guidance for future AI agents
-- Generate/improve `ai.extensionPoints` — clearly document where/how to extend
-- Set `ai.complexity` rating based on actual code analysis
+### Stage 3: `dependency_check` (no LLM)
+- Validate `dependencies.npmPackages` against allowlist (`packages/pipeline/config/npm-allowlist.json`)
+- Flag unknown npm packages (warning, not rejection — requires manual review)
+- Check for known vulnerable package versions (via `packages/pipeline/config/npm-blocklist.json`)
+- Validate `dependencies.cslateComponents[]` IDs exist in DB and have `approved` status
+- Missing CSlate dependencies → listed in `missingDependencies[]`, not a hard rejection
 
-**Outcome:** Updated manifest.json with enriched metadata. This is what makes the shared DB incredibly useful — expert-level documentation on every component.
+**Outcome:** Reject on known-malicious packages only. Warn on unknown packages.
 
-### Stage 6: Embedding Generation
-After all reviews pass:
-- Generate vector embedding from: `description` + `tags` + `anatomy` + `context/decisions.md` summary
-- This composite embedding captures both what the component IS and WHY it was built
-- Store embedding in pgvector for semantic search
+### Stage 4: `quality_review` (LLM)
+Deep code review covering:
+- **UI/Logic separation**: business logic in `logic.ts`, not `ui.tsx`
+- **Type safety**: types in `types.ts`, no untyped `any`, no type assertions without comments
+- **Tailwind usage**: semantic tokens (`bg-primary`, `text-muted`) NOT hardcoded (`bg-blue-500`) — per Decision 008
+- **Manifest accuracy**: declared `inputs`, `outputs`, `events`, `actions` match actual code
+- **Context alignment**: does `context.md` describe what the code actually does?
+- **dataSources integrity**: every `bridge.fetch(sourceId, ...)` matches a declared `dataSources` entry; no undeclared sources accessed
+- **userConfig**: sensitive fields accessed only via `bridge.getConfig()`, never hardcoded in source
+- **Accessibility**: semantic HTML, ARIA labels where appropriate
+- **Clean code**: no dead code, commented-out blocks, console.logs, TODO/FIXME
 
-### Stage 7: Cataloging
-Final step:
-- Assign unique ID and version
-- Store all package files
-- Index in pgvector
-- Update category/domain indices
-- Component becomes discoverable by other users
+**Outcome:** Fail on major issues. Warn on minor suggestions. LLM provides specific, actionable feedback per issue.
+
+### Stage 5: `test_render` (no headless browser — TypeScript compilation only)
+> **Note on naming:** "test_render" was the agreed client-contract name. In v1, this means TypeScript compilation — no headless browser rendering. Browser rendering test is deferred to v2.
+
+**TypeScript compilation environment:**
+To typecheck CSlate components, we provide a minimal type stub environment:
+
+```typescript
+// packages/pipeline/src/type-stubs/bridge.d.ts
+declare const bridge: {
+  fetch: (sourceId: string, endpointId: string, params?: Record<string, any>) => Promise<any>
+  subscribe: (sourceId: string, endpointId: string, params: Record<string, any>, callback: (data: any) => void) => () => void
+  getConfig: (key: string) => any
+}
+```
+
+```typescript
+// packages/pipeline/src/type-stubs/react-shim.d.ts
+// Re-exports React types so components don't need to import React explicitly
+```
+
+Compilation steps:
+1. Write uploaded files to a temp directory
+2. Add bridge type stubs + tsconfig.json with `"jsx": "react-jsx"`, `"strict": true`
+3. Run `tsc --noEmit`
+4. Capture and return all TypeScript errors with file + line
+
+**Outcome:** Reject on TypeScript errors. The client AI agent auto-fixes and re-uploads.
+
+### Stage 6: `cataloging` (LLM)
+LLM-generated metadata for discovery and AI agent use:
+- Generate 1-2 sentence `summary` for display in search results
+- Assign `category` and `subcategory` from the taxonomy
+- Estimate `complexity` (simple/moderate/complex) based on code analysis
+- Generate `contextSummary` from `context.md` — "why this was built"
+- Generate `ai.modificationHints` — specific, file-referencing guidance for future AI agents
+- Generate `ai.extensionPoints` — named customization surfaces
+- Verify/improve `description` for search clarity
+- Verify/expand `tags` for comprehensive keyword coverage
+
+**Always passes** — this is enrichment, not validation. If LLM fails (timeout, error), skip with warning and use submitted values.
+
+### Stage 7: `embedding` (no LLM)
+- Compose embedding input from:
+  ```
+  Component: {name}
+  Description: {description}
+  Tags: {tags.join(', ')}
+  Summary: {summary}
+  Context: {contextSummary}
+  Data Sources: {dataSources[].description joined}
+  Inputs: {inputs[].description joined}
+  Outputs: {outputs[].description joined}
+  ```
+- Call OpenAI `text-embedding-3-small` (1536 dims)
+- Compute `ai.similarTo` — top 5 nearest neighbors via pgvector
+- Version detection: if same `name` + same `author_id` exists → set `parent_id` to existing component
+- Insert into `components` table, update `uploads.component_id`
+
+**Always passes** (storage errors surface as job failures, retried by pg-boss).
+
+---
 
 ## Pipeline Flow
 
 ```
-Upload → Stage 1 (Structural) → Stage 2 (Security) → Stage 3 (Quality)
-                                                            ↓
-                                          Stage 4 (Context Verification)
-                                                            ↓
-                                          Stage 5 (Manifest Enrichment)
-                                                            ↓
-                                          Stage 6 (Embedding Generation)
-                                                            ↓
-                                          Stage 7 (Cataloging) → LIVE in shared DB
+Upload → manifest_validation → security_scan → dependency_check
+                                                      ↓
+                                             quality_review
+                                                      ↓
+                                              test_render
+                                                      ↓
+                                              cataloging
+                                                      ↓
+                                              embedding → LIVE in shared DB
 ```
 
 Early stages are fast/cheap (no LLM). Later stages are thorough/expensive (LLM).
 If any stage fails, the pipeline stops and returns feedback to the client.
 
+---
+
+## Incremental Retry (Smart Resume)
+
+When a job fails mid-pipeline (LLM timeout, transient error), pg-boss retries with exponential backoff. The worker checks `uploads.completed_stages` and **skips already-passed stages**.
+
+Rules:
+- Deterministic stages (manifest_validation, dependency_check, test_render): always re-run (cheap, fast)
+- LLM stages (security_scan, quality_review, cataloging): skip if in `completed_stages` with `status: 'passed'`
+- Embedding: always re-run (idempotent)
+
+This avoids paying LLM costs twice for a transient network error.
+
+---
+
 ## Rejection Handling
 
 When a component is rejected:
-1. Server sends detailed feedback to the client (what failed, why, how to fix)
-2. Client can show this to the user and/or have the local AI auto-fix issues
-3. User can re-submit the improved component
-4. Re-submission goes through the full pipeline again (no shortcuts)
+1. Server stores stage results in `uploads.rejection_reasons` (JSONB array of `{stage, issues[]}`)
+2. Client polls or receives via SSE stream
+3. Client shows issues to user and/or has local AI auto-fix
+4. Re-submission goes through full pipeline (incomplete stages not cached across submissions)
+
+---
+
+## LLM Cost Analysis
+
+At scale, the pipeline makes 2-3 LLM calls per upload:
+- Stage 2 (`security_scan`): ~500-2000 tokens input + ~300 output = ~$0.003 per upload (GPT-4o)
+- Stage 4 (`quality_review`): ~3000-8000 tokens input + ~1000 output = ~$0.012 per upload
+- Stage 6 (`cataloging`): ~2000-5000 tokens input + ~500 output = ~$0.007 per upload
+- **Total: ~$0.022 per upload** (GPT-4o pricing)
+
+| Daily uploads | Monthly LLM cost |
+|---|---|
+| 100 | ~$66 |
+| 500 | ~$330 |
+| 1,000 | ~$660 |
+| 5,000 | ~$3,300 |
+
+**Cost controls:**
+- `teamConcurrency: 5` caps concurrent pipelines (prevents rate limit spikes)
+- Rejected at Stage 1/2 (no LLM cost): structural/security failures are free to detect
+- Use `claude-haiku-4-5` for cataloging (less critical), `claude-sonnet-4-6` for security/quality
+- Monitor cost per upload; alert if above $0.05 (indicates unusually large components)
+
+**Embedding cost** (text-embedding-3-small): ~$0.0002 per upload — negligible.
+
+---
 
 ## Quality Bar
 
@@ -127,15 +245,19 @@ The shared DB is a **curated library**, not a marketplace. The quality bar is:
 
 If the answer to any of these is "no," the component does not enter the shared DB.
 
-## Performance Considerations
+---
 
-- Stages 1-2 (structural + security static analysis): < 5 seconds
-- Stages 3-5 (LLM review): 30-120 seconds depending on component complexity
-- Stage 6 (embedding): < 5 seconds
-- Stage 7 (cataloging): < 2 seconds
-- **Total pipeline: ~1-3 minutes per component**
+## Performance Expectations
 
-This is acceptable because:
-- Upload is async — user doesn't wait
-- User already has their component locally
-- Quality is worth the wait
+| Stage | Mode | Expected duration |
+|---|---|---|
+| manifest_validation | No LLM | < 2s |
+| security_scan | Static + LLM | 5-30s |
+| dependency_check | No LLM | < 2s |
+| quality_review | LLM | 20-60s |
+| test_render | TypeScript compiler | 5-15s |
+| cataloging | LLM | 10-30s |
+| embedding | API call | 3-5s |
+| **Total** | | **~1-2.5 minutes** |
+
+Acceptable: upload is async. Users already have their component locally.

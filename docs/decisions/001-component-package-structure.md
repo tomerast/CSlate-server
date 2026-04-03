@@ -1,7 +1,12 @@
 # Decision 001: Component Package Structure
 
 **Date:** 2026-03-28
-**Status:** Pending
+**Status:** Superseded (partially)
+
+> **⚠️ Manifest schema superseded by `@cslate/shared`.**
+> The `ComponentManifest` Zod schema is the single source of truth in the `@cslate/shared` npm package, maintained by the client team. The file format below reflects the agreed flat layout. Do not re-derive the manifest structure from this document — import and use `@cslate/shared`.
+
+> **File naming update:** The flat layout was adopted (alignment with client Decision 016): `ui.tsx`, `logic.ts`, `types.ts`, `context.md` — not `{name}.tsx`, `{name}.hook.ts`, subdirectories.
 
 ## Context
 
@@ -29,29 +34,21 @@ Patterns studied: shadcn/ui registry model, Radix compound components, Bit.dev c
 
 ## Decision: Component Package Format
 
-A component is a **self-contained package** (directory) with a strict, predictable structure:
+A component is a **self-contained package** (flat file bundle) with a strict, predictable structure:
 
 ```
 {component-name}/
-├── manifest.json                     # Machine-readable metadata (primary retrieval artifact)
-├── context/
-│   └── decisions.md                  # User conversation context, decisions, requirements
-├── ui/
-│   ├── {component-name}.tsx          # Primary UI (presenter)
-│   ├── {component-name}.variants.ts  # Visual variants (structured, not conditionals)
-│   └── parts/                        # Sub-components (compound pattern, if applicable)
-│       ├── trigger.tsx
-│       ├── content.tsx
-│       └── item.tsx
-├── logic/
-│   ├── {component-name}.hook.ts      # Business logic / state / side effects
-│   └── {component-name}.utils.ts     # Pure utility functions (if needed)
-├── types/
-│   └── {component-name}.types.ts     # TypeScript interfaces and prop types
-├── examples/
-│   └── {component-name}.examples.tsx # Usage examples (CSF-inspired)
-└── index.ts                          # Barrel exports
+├── manifest.json     # Machine-readable metadata (Zod-validated against @cslate/shared schema)
+├── ui.tsx            # Primary React component (presenter only — no business logic)
+├── logic.ts          # Business logic: state, hooks, side effects
+├── types.ts          # TypeScript interfaces and prop types
+├── context.md        # User conversation context, design decisions, requirements
+└── index.ts          # Barrel exports
 ```
+
+**Why flat:** The client AI agent generates and consumes these packages. Flat layouts are simpler for LLM-generated code and eliminate path ambiguity. Sub-components are written directly in `ui.tsx` as unexported helpers.
+
+**Not included in v1 (deferred):** `variants.ts`, `examples.tsx`, `parts/` subdirectory. These add complexity without proportionate value at this stage.
 
 ### The Manifest (`manifest.json`)
 

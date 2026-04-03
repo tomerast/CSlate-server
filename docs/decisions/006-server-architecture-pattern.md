@@ -83,10 +83,12 @@ cslate-server/
     worker/       # pg-boss worker process (deployable)
   packages/
     db/           # Drizzle schema, migrations, connection
-    shared/       # Zod schemas, types, constants (mirrors @cslate/shared)
     queue/        # pg-boss job definitions, typed job creators
     pipeline/     # Review pipeline stages (shared between worker and tests)
     storage/      # R2 client, file operations
+    llm/          # LLM client abstraction (Anthropic/OpenAI)
+  # Note: @cslate/shared is an external npm dependency, NOT a local package.
+  # Import it as: import { ComponentManifest } from '@cslate/shared'
   turbo.json
   pnpm-workspace.yaml
 ```
@@ -101,7 +103,9 @@ cslate-server/
 
 4. **Stage-level parallelism within a single pipeline.** Stages 3 (quality) and 4 (context verification) are independent — run via `Promise.all([stage3(), stage4()])`. No infrastructure change needed.
 
-5. **Smart retry.** Persist stage progress in job data: `{ completedStages: [1, 2], currentStage: 3 }`. On retry, skip completed stages.
+5. **Smart retry.** Persist stage progress in upload record: `{ completedStages: ['manifest_validation', 'security_scan'], currentStage: 'dependency_check' }`. On retry, skip completed LLM stages (deterministic stages always re-run).
+
+6. **`teamConcurrency: 5` is calibrated to LLM rate limits.** Claude claude-sonnet-4-6 default rate limit is ~60 RPM. 5 concurrent pipelines × 3 LLM calls each = up to 15 in-flight calls at once, generating ~10 RPM at 30s/call average — safe headroom under 60 RPM. Increase this value proportionally if on a higher-tier API plan.
 
 ### Deployment: Fly.io
 - **`cslate-api`**: 1 always-on machine (shared-cpu-1x, 512MB). ~$3.50/mo

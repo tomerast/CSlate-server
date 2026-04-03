@@ -28,6 +28,15 @@ export async function enqueueReviewJob(data: ReviewJobData): Promise<string | nu
 
 export async function registerMaintenanceSchedules(): Promise<void> {
   const boss = await getBoss()
+  // pg-boss v10: queues must exist before scheduling
+  const maintenanceQueues = [
+    JOB_NAMES.CLEANUP_FAILED_UPLOADS,
+    JOB_NAMES.CREATE_PARTITION,
+    JOB_NAMES.DROP_OLD_PARTITIONS,
+  ]
+  for (const name of maintenanceQueues) {
+    await boss.createQueue(name)
+  }
   await boss.schedule(JOB_NAMES.CLEANUP_FAILED_UPLOADS, '0 3 * * *', {}) // Daily 3 AM
   await boss.schedule(JOB_NAMES.CREATE_PARTITION, '0 0 25 * *', {})      // Monthly
   await boss.schedule(JOB_NAMES.DROP_OLD_PARTITIONS, '0 1 1 * *', {})    // Monthly

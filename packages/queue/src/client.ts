@@ -9,8 +9,8 @@ export async function getBoss(): Promise<PgBoss> {
       retryLimit: 3,
       retryDelay: 30,
       retryBackoff: true,
-      expireInHours: 24,
-      archiveCompletedAfterSeconds: 7 * 24 * 3600,
+      expireInHours: 23,
+      archiveCompletedAfterSeconds: 86400, // pg-boss v10 max is 24h
     })
     await _boss.start()
   }
