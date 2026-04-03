@@ -89,43 +89,12 @@ Work through these in order of impact. Each iteration should tackle ONE focused 
 ### Priority 3: Prompt Engineering (HIGHEST IMPACT)
 This is where the real capability improvement lives. Study the reference prompts then rewrite ours.
 
-- [ ] **Security expert prompt** (`experts/prompts.ts`) — Current prompt says "paranoid security expert" but doesn't give structured methodology. Rewrite to include:
-  - Explicit attack surface enumeration steps
-  - Severity classification criteria (what makes something critical vs warning vs info)
-  - Concrete examples of what each severity level looks like in component code
-  - Specific bridge API abuse patterns to check
-  - Output format that forces structured reasoning before scoring
-  
-- [ ] **Quality expert prompt** — Current prompt is vague about what "senior architect" means. Rewrite to include:
-  - SOLID principle checklist with component-specific examples
-  - Performance anti-patterns for React components (unnecessary re-renders, memory leaks, large bundles)
-  - Type safety evaluation criteria beyond just "are there types?"
-  - Architecture smell detection (god components, prop drilling, improper state management)
-
-- [ ] **Standards expert prompt** — Currently the weakest prompt. Rewrite to include:
-  - Concrete readability metrics (function length, nesting depth, naming conventions)
-  - Accessibility checklist (ARIA, keyboard nav, screen reader, color contrast)
-  - Manifest accuracy verification steps (does manifest.json match actual behavior?)
-  - Documentation completeness criteria
-
-- [ ] **Red-team prompt** (`red-team/prompts.ts`) — Good foundation but needs:
-  - Step-by-step exploitation methodology (recon → surface mapping → exploit attempt → verify)
-  - More concrete examples of each attack vector in the component context
-  - Clearer criteria for feasibility levels with examples
-  - Chain-of-thought reasoning requirement before claiming any finding
-
-- [ ] **Judge prompt** (`judge/prompts.ts`) — Critical anti-hallucination role needs:
-  - Explicit verification methodology (how exactly to verify each finding type)
-  - Calibration examples (here's a hallucinated finding, here's a real one)
-  - Conflict resolution decision tree
-  - Severity recalibration guidelines with examples
-
-- [ ] **All prompts** — Apply these patterns from the reference:
-  - Separate static instruction sections from dynamic context injection
-  - Use structured sections with clear headers
-  - Include few-shot examples where possible
-  - Add "critical rules" sections for absolute constraints
-  - Define output schemas inline with field-by-field explanations
+- [x] **Security expert prompt** (`experts/prompts.ts`) — Rewritten with structured methodology (5-step), severity classification table, bridge API abuse patterns, shared output rules and schema
+- [x] **Quality expert prompt** — Rewritten with architecture/correctness/type-safety/performance methodology, component-specific anti-patterns, severity classification table
+- [x] **Standards expert prompt** — Rewritten with readability audit (naming, dead code, file size), accessibility audit (semantic HTML, ARIA, keyboard nav, color contrast), manifest verification steps
+- [x] **Red-team prompt** (`red-team/prompts.ts`) — Rewritten with 4-phase exploitation methodology (recon → surface mapping → exploit → chain analysis), attack vector table with search patterns, feasibility classification with examples, threat level guide
+- [x] **Judge prompt** (`judge/prompts.ts`) — Rewritten with explicit verification methodology, 4 calibration examples (hallucinated, wrong location, over-severity, real critical), scoring guide for dimension scores
+- [x] **All prompts** — Applied reference patterns: structured hierarchical sections, critical rules sections, few-shot examples in judge, severity classification tables, shared output schema and rules extracted into helpers
 
 ### Priority 4: Agent Capability Improvements
 - [ ] Add a `analyzeComponent` tool that gives agents a high-level summary of what the component does (renders, state, effects, event handlers) so they don't waste iterations understanding basics
@@ -165,6 +134,7 @@ This is where the real capability improvement lives. Study the reference prompts
 <!-- Each iteration adds a line here: "Iteration N: <what was done>" -->
 Iteration 1: Priority 1 — Wired up `loadKnowledgeBase()` to query real DB tables (reviewerStandards, reviewerPatterns, reviewerDimensionWeights), removed error-swallowing try/catch in all 3 expert agents replacing with direct imports of `injectKnowledge`, verified all barrel files and imports are clean. All 247 tests pass.
 Iteration 2: Priority 2a — Extracted shared tools (readFile, listFiles, searchCode, getManifest) into `shared-tools.ts`, refactored all 3 tool files to compose from shared + phase-specific tools. All 247 tests pass.
+Iteration 3: Priority 3 — Complete prompt engineering overhaul. Rewrote all 5 agent prompts (security, quality, standards, red-team, judge) with structured methodology, severity tables, few-shot examples, shared output schema, and critical rules sections. All 247 tests pass.
 
 ## When You're Done
 
