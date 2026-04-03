@@ -19,6 +19,8 @@ import type {
   JudgeResult,
 } from './types'
 import { DEFAULT_REVIEWER_CONFIG } from './types'
+import { createLogger } from '@cslate/logger'
+const log = createLogger('pipeline:reviewer-agent')
 
 // ─── Phase Timeouts (ms) ─────────────────────────────────────────────────────
 
@@ -61,6 +63,7 @@ async function withRetry<T>(fn: () => Promise<T>, label: string, maxRetries = MA
       lastError = err
       if (attempt < maxRetries && isTransientError(err)) {
         const delay = RETRY_DELAY_MS * Math.pow(2, attempt)
+        log.warn({ label, attempt, delay, err }, 'transient error — retrying')
         await new Promise(resolve => setTimeout(resolve, delay))
         continue
       }
@@ -85,6 +88,8 @@ export async function agentReview(
     staticAnalysis: 0, expertAgents: 0, redTeam: 0, judge: 0, verdict: 0,
   }
 
+  log.info({ uploadId: ctx.uploadId, componentName: (ctx.manifest as any).name }, 'agent review start')
+
   const trackCost = async (phase: string, model: string, tokens: { input: number; output: number }) => {
     await trackReviewCost(db, ctx.uploadId, phase, model, tokens)
     const { estimateCost } = await import('./config/cost-tracker')
@@ -100,10 +105,18 @@ export async function agentReview(
     'static_analysis',
   )
   phaseDurations.staticAnalysis = Date.now() - phaseStart1
+  log.debug({
+    uploadId: ctx.uploadId,
+    phase: 'static_analysis',
+    durationMs: phaseDurations.staticAnalysis,
+    criticalFindings: staticResult.criticalFindings.length,
+    warnings: staticResult.warnings.length,
+  }, 'phase done')
   await onProgress?.({ phase: 'static_analysis', status: 'complete', detail: `${staticResult.criticalFindings.length} critical, ${staticResult.warnings.length} warnings in ${phaseDurations.staticAnalysis}ms` })
 
   // Short-circuit on critical static findings
   if (staticResult.criticalFindings.length > 0) {
+    log.warn({ uploadId: ctx.uploadId, phase: 'static_analysis', criticalFindings: staticResult.criticalFindings.length }, 'short-circuit: critical static findings')
     return buildRejectResult('static_analysis', staticResult.criticalFindings, startTime)
   }
 
@@ -135,12 +148,21 @@ export async function agentReview(
   const securityResult = expertResults.find(r => r.agent === 'security-expert')
   const securityFailed = securityResult?.dimensions.some(d => d.tier === 'security' && d.verdict === 'fail')
 
+  log.debug({
+    uploadId: ctx.uploadId,
+    phase: 'expert_agents',
+    durationMs: phaseDurations.expertAgents,
+    totalFindings: totalExpertFindings,
+    securityFailed: !!securityFailed,
+  }, 'phase done')
+
   let redTeamResult: RedTeamResult
   let judgeResult: JudgeResult
 
   if (securityFailed) {
     // Skip red-team — security already failed, no point in adversarial probing
     await onProgress?.({ phase: 'red_team', status: 'skipped', detail: 'Security expert found critical failures — skipping adversarial analysis' })
+    log.debug({ uploadId: ctx.uploadId, phase: 'red_team' }, 'phase skipped — security already failed')
     redTeamResult = buildMinimalRedTeamResult()
   } else {
     // ─── Phase 3: Red-Team ─────────────────────────────────────────────────
@@ -155,6 +177,13 @@ export async function agentReview(
       'red_team',
     )
     phaseDurations.redTeam = Date.now() - phaseStart3
+    log.debug({
+      uploadId: ctx.uploadId,
+      phase: 'red_team',
+      durationMs: phaseDurations.redTeam,
+      threatLevel: redTeamResult.overallThreatLevel,
+      exploitAttempts: redTeamResult.exploitAttempts.length,
+    }, 'phase done')
     await onProgress?.({ phase: 'red_team', status: 'complete', detail: `Threat level: ${redTeamResult.overallThreatLevel}, ${redTeamResult.exploitAttempts.length} exploit attempts in ${phaseDurations.redTeam}ms` })
     await trackCost('red_team', config.modelOverrides.redTeam ?? 'claude-sonnet-4-6', redTeamResult.tokenCost)
   }
@@ -171,6 +200,13 @@ export async function agentReview(
     'judge',
   )
   phaseDurations.judge = Date.now() - phaseStart4
+  log.debug({
+    uploadId: ctx.uploadId,
+    phase: 'judge',
+    durationMs: phaseDurations.judge,
+    verifiedFindings: judgeResult.verifiedFindings.length,
+    hallucinated: judgeResult.stats.hallucinated,
+  }, 'phase done')
   await onProgress?.({ phase: 'judge', status: 'complete', detail: `${judgeResult.verifiedFindings.length} verified, ${judgeResult.rejectedFindings.length} rejected (${judgeResult.stats.hallucinated} hallucinated) in ${phaseDurations.judge}ms` })
   await trackCost('judge', config.modelOverrides.judge ?? 'claude-sonnet-4-6', judgeResult.tokenCost)
 
@@ -182,6 +218,19 @@ export async function agentReview(
   const verdict = computeVerdict(judgeResult, redTeamResult, config, stats, cost)
   phaseDurations.verdict = Date.now() - phaseStart5
   stats.phaseDurations.verdict = phaseDurations.verdict
+  const totalCost = costEntries.reduce((sum, e) => sum + e.estimatedCost, 0)
+  const totalTokens = costEntries.reduce((acc, e) => ({ input: acc.input + e.tokens.input, output: acc.output + e.tokens.output }), { input: 0, output: 0 })
+  log.info({
+    uploadId: ctx.uploadId,
+    decision: verdict.decision,
+    decisionReason: verdict.decisionReason,
+    totalDurationMs: Date.now() - startTime,
+    phaseDurations,
+    totalInputTokens: totalTokens.input,
+    totalOutputTokens: totalTokens.output,
+    estimatedCostUsd: totalCost.toFixed(4),
+    hallucinationRate: stats.hallucinationRate.toFixed(2),
+  }, 'agent review done')
   await onProgress?.({ phase: 'verdict', status: 'complete', detail: `${verdict.decision}: ${verdict.decisionReason}` })
 
   // Record outcome for learning
