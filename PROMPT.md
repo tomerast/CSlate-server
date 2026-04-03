@@ -114,7 +114,7 @@ This is where the real capability improvement lives. Study the reference prompts
 - [x] Current weighted scoring (security=3x, quality=2x, standards=1x) is arbitrary. Add configuration and justification *(added tierWeights to ReviewerConfig, defaults security=3, quality=2, standards=1)*
 - [x] Verdict thresholds should be configurable per-deployment, not hardcoded *(qualityThreshold and maxWarnings already configurable via DB; tierWeights now also configurable)*
 - [x] Report renderer should include actionable fix suggestions, not just findings
-- [ ] Add confidence intervals to scores, not just point estimates
+- [x] Add confidence intervals to scores, not just point estimates *(added ConfidenceInterval type, per-dimension intervals based on sample size/severity mix/hallucination rate, overall verdict interval as weighted aggregate)*
 - [ ] Consider a "suggestions" tier below "warnings" for style/preference items
 
 ## Rules
@@ -143,6 +143,7 @@ Iteration 8: Priority 2c + 4b — Added `getComponentContext` tool (hooks, props
 Iteration 9: Priority 5b — Improved short-circuit logic: security criticals now skip red-team but still run judge (anti-hallucination verification). Previously both were skipped, risking false positives going unverified. All 247 tests pass.
 Iteration 10: Priority 2c — Split types.ts (681 lines) into types/ directory with 5 sub-files (dimensions.ts, phases.ts, results.ts, learning.ts, config.ts). Original types.ts kept as barrel re-export for zero import churn across 47 import sites. All 247 tests pass.
 Iteration 11: Priority 4c — Added searchAST tool to shared-tools.ts leveraging CodeStructureMap from Phase 1. Supports 9 query types: functionCalls, imports, exports, functions, bridgeCalls, domAccess, dynamicExpressions, stateSetters, effectDeps. Wired into expert and red-team tool sets. All 247 tests pass.
+Iteration 12: Priority 6c — Added confidence intervals to scoring. New ConfidenceInterval type with lower/upper/width. Per-dimension intervals computed from sample size, severity mix, and hallucination rate. Overall verdict interval as weighted aggregate. Report renderer shows intervals in scorecard and verdict header. All 247 tests pass.
 
 ## When You're Done
 

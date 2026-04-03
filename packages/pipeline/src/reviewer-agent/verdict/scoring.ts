@@ -1,4 +1,5 @@
 import {
+  ConfidenceInterval,
   DimensionScore,
   DimensionTier,
   FinalDimensionScore,
@@ -22,6 +23,62 @@ function tierWeight(tier: DimensionTier, config: ReviewerConfig): number {
   return weights[tier]
 }
 
+/**
+ * Compute a confidence interval for a dimension score.
+ *
+ * Factors that widen the interval (increase uncertainty):
+ * - Few findings (small sample size)
+ * - Mixed severity findings (disagreement)
+ * - Low tool verification rate
+ * - High overall hallucination rate
+ *
+ * Returns bounds clamped to [0, 100].
+ */
+function computeConfidenceInterval(
+  confidence: number,
+  findingCount: number,
+  criticalCount: number,
+  warningCount: number,
+  hallucinationRate: number,
+): ConfidenceInterval {
+  // Base half-width: starts at 25 and narrows with more findings
+  // 0 findings → 25, 1 → 18, 3 → 12, 5 → 10, 10+ → ~7
+  const sampleFactor = findingCount === 0 ? 25 : 25 / Math.sqrt(1 + findingCount)
+
+  // Severity consistency: mixed critical+warning = wider interval
+  const totalSeverityFindings = criticalCount + warningCount
+  const severityMix = totalSeverityFindings > 1
+    ? Math.min(criticalCount, warningCount) / totalSeverityFindings * 10
+    : 0
+
+  // Hallucination penalty: high hallucination rate = less trustworthy scores
+  const hallucinationPenalty = hallucinationRate * 20
+
+  const halfWidth = Math.round(sampleFactor + severityMix + hallucinationPenalty)
+  const lower = Math.max(0, confidence - halfWidth)
+  const upper = Math.min(100, confidence + halfWidth)
+
+  return { lower, upper, width: upper - lower }
+}
+
+/**
+ * Compute an aggregate confidence interval for the overall verdict.
+ * Uses weighted combination of per-dimension intervals.
+ */
+function computeOverallConfidenceInterval(scorecard: DimensionScore[]): ConfidenceInterval {
+  if (scorecard.length === 0) return { lower: 0, upper: 0, width: 0 }
+
+  const totalWeight = scorecard.reduce((sum, d) => sum + d.weight, 0)
+  if (totalWeight === 0) return { lower: 0, upper: 0, width: 0 }
+
+  const weightedLower = scorecard.reduce((sum, d) => sum + d.weight * d.confidenceInterval.lower, 0) / totalWeight
+  const weightedUpper = scorecard.reduce((sum, d) => sum + d.weight * d.confidenceInterval.upper, 0) / totalWeight
+
+  const lower = Math.round(weightedLower)
+  const upper = Math.round(weightedUpper)
+  return { lower, upper, width: upper - lower }
+}
+
 export function weightedAverage(dimensions: DimensionScore[]): number {
   const numerator = dimensions.reduce((sum, d) => sum + d.weight * d.confidence * verdictScore(d.verdict), 0)
   const denominator = dimensions.reduce((sum, d) => sum + d.weight, 0)
@@ -29,16 +86,28 @@ export function weightedAverage(dimensions: DimensionScore[]): number {
 }
 
 function buildScorecard(judgeResult: JudgeResult, config: ReviewerConfig): DimensionScore[] {
+  const hallucinationRate = judgeResult.stats.totalFindingsReceived > 0
+    ? judgeResult.stats.hallucinated / judgeResult.stats.totalFindingsReceived
+    : 0
+
   return judgeResult.dimensionScores.map((fs: FinalDimensionScore) => {
     const dimConfig = DIMENSIONS.find(d => d.id === fs.dimension)
     const tier: DimensionTier = dimConfig?.tier ?? 'quality'
     const weight = tierWeight(tier, config)
+    const confidenceInterval = computeConfidenceInterval(
+      fs.confidence,
+      fs.verifiedFindings,
+      fs.criticalCount,
+      fs.warningCount,
+      hallucinationRate,
+    )
     return {
       dimension: fs.dimension,
       name: fs.name,
       tier,
       verdict: fs.verdict,
       confidence: fs.confidence,
+      confidenceInterval,
       weight,
       weightedScore: weight * verdictScore(fs.verdict) * (fs.confidence / 100),
       summary: fs.summary,
@@ -64,6 +133,7 @@ function buildVerdict(
   return {
     decision,
     decisionConfidence: Math.min(100, Math.max(0, Math.round(qualityScore))),
+    decisionConfidenceInterval: computeOverallConfidenceInterval(scorecard),
     decisionReason: reason,
     scorecard,
     findings: judgeResult.verifiedFindings,

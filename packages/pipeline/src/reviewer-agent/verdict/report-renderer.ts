@@ -81,7 +81,7 @@ export function renderReport(verdict: ReviewVerdict, componentName: string, vers
   )
 
   const scorecardRows = verdict.scorecard
-    .map(d => `| ${d.dimension} | ${d.name} | ${d.verdict.toUpperCase()} | ${d.confidence}% | ${d.findings.critical} | ${d.findings.warning} |`)
+    .map(d => `| ${d.dimension} | ${d.name} | ${d.verdict.toUpperCase()} | ${d.confidence}% (${d.confidenceInterval.lower}-${d.confidenceInterval.upper}) | ${d.findings.critical} | ${d.findings.warning} |`)
     .join('\n')
 
   const criticalSection = criticalFindings.length > 0
@@ -107,7 +107,7 @@ export function renderReport(verdict: ReviewVerdict, componentName: string, vers
 
 ## Verdict: ${icon} ${verdict.decision.toUpperCase()}
 **Reason:** ${verdict.decisionReason}
-**Confidence:** ${verdict.decisionConfidence}%
+**Confidence:** ${verdict.decisionConfidence}% (${verdict.decisionConfidenceInterval.lower}-${verdict.decisionConfidenceInterval.upper})
 **Duration:** ${verdict.stats.totalDuration}ms
 **Cost:** $${verdict.cost.totalEstimatedCost.toFixed(4)}
 

@@ -1,6 +1,6 @@
 // ─── Phase 5: Verdict ────────────────────────────────────────────────────────
 
-import type { DimensionScore, RedTeamResult, VerifiedFinding } from './phases'
+import type { ConfidenceInterval, DimensionScore, RedTeamResult, VerifiedFinding } from './phases'
 
 export interface ReviewStats {
   totalDuration: number
@@ -46,6 +46,7 @@ export interface LearningSignal {
 export interface ReviewVerdict {
   decision: 'approved' | 'rejected'
   decisionConfidence: number
+  decisionConfidenceInterval: ConfidenceInterval
   decisionReason: string
   scorecard: DimensionScore[]
   findings: VerifiedFinding[]

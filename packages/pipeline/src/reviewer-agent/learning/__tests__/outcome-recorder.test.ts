@@ -21,6 +21,7 @@ function makeVerdict(decision: 'approved' | 'rejected' = 'approved'): ReviewVerd
   return {
     decision,
     decisionConfidence: 90,
+    decisionConfidenceInterval: { lower: 65, upper: 100, width: 35 },
     decisionReason: 'All checks passed',
     scorecard: [],
     findings: [],

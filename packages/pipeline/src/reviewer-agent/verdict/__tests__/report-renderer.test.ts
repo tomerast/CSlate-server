@@ -18,6 +18,7 @@ function makeDimScore(overrides: Partial<DimensionScore> = {}): DimensionScore {
     tier: 'security',
     verdict: 'pass',
     confidence: 95,
+    confidenceInterval: { lower: 70, upper: 100, width: 30 },
     weight: 3,
     weightedScore: 2.85,
     summary: 'No issues found',
@@ -81,6 +82,7 @@ function makeApprovedVerdict(): ReviewVerdict {
   return {
     decision: 'approved',
     decisionConfidence: 92,
+    decisionConfidenceInterval: { lower: 70, upper: 100, width: 30 },
     decisionReason: 'All dimensions passed review',
     scorecard: [
       makeDimScore({ dimension: 1, name: 'Malicious Intent Detection', verdict: 'pass', findings: { critical: 0, warning: 0, info: 0 } }),
@@ -100,6 +102,7 @@ function makeRejectedVerdict(): ReviewVerdict {
   return {
     decision: 'rejected',
     decisionConfidence: 25,
+    decisionConfidenceInterval: { lower: 0, upper: 50, width: 50 },
     decisionReason: 'Critical findings remain after judge review',
     scorecard: [
       makeDimScore({ dimension: 2, name: 'Injection & Sandbox Escape', tier: 'security', verdict: 'fail', confidence: 95, findings: { critical: 1, warning: 0, info: 0 } }),

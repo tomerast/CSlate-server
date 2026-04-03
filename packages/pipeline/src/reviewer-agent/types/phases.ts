@@ -131,12 +131,19 @@ export interface ExpertFinding {
   toolVerification?: string
 }
 
+export interface ConfidenceInterval {
+  lower: number       // lower bound (0-100)
+  upper: number       // upper bound (0-100)
+  width: number       // upper - lower
+}
+
 export interface DimensionScore {
   dimension: number
   name: string
   tier: DimensionTier
   verdict: 'pass' | 'fail' | 'warning'
   confidence: number
+  confidenceInterval: ConfidenceInterval
   weight: number
   weightedScore: number
   summary: string

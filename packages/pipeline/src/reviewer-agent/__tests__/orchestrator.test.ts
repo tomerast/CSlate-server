@@ -153,6 +153,7 @@ const makeJudgeResult = (): JudgeResult => ({
 const makeVerdict = (decision: 'approved' | 'rejected' = 'approved'): ReviewVerdict => ({
   decision,
   decisionConfidence: 95,
+  decisionConfidenceInterval: { lower: 70, upper: 100, width: 30 },
   decisionReason: decision === 'approved' ? 'All dimensions passed' : 'Critical issues found',
   scorecard: [],
   findings: [],
