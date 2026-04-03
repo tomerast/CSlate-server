@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@cslate/db": "workspace:*",
+    "@cslate/logger": "workspace:*",
     "@cslate/llm": "workspace:*",
     "@cslate/queue": "workspace:*",
     "@cslate/shared": "github:tomerast/CSlate-shared",
