@@ -19,6 +19,7 @@ export async function getReviewerConfig(db: Db): Promise<ReviewerConfig> {
     maxJudgeIterations: row.maxJudgeIterations ?? DEFAULT_REVIEWER_CONFIG.maxJudgeIterations,
     qualityThreshold: row.qualityThreshold ?? DEFAULT_REVIEWER_CONFIG.qualityThreshold,
     maxWarnings: row.maxWarnings ?? DEFAULT_REVIEWER_CONFIG.maxWarnings,
+    tierWeights: DEFAULT_REVIEWER_CONFIG.tierWeights,
     modelOverrides: (row.modelOverrides as ReviewerConfig['modelOverrides']) ?? DEFAULT_REVIEWER_CONFIG.modelOverrides,
   }
 }

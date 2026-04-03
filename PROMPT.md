@@ -111,9 +111,9 @@ This is where the real capability improvement lives. Study the reference prompts
 - [ ] Consider streaming partial results — don't wait for all experts to finish before showing early findings
 
 ### Priority 6: Scoring & Verdict
-- [ ] Current weighted scoring (security=3x, quality=2x, standards=1x) is arbitrary. Add configuration and justification
-- [ ] Verdict thresholds should be configurable per-deployment, not hardcoded
-- [ ] Report renderer should include actionable fix suggestions, not just findings
+- [x] Current weighted scoring (security=3x, quality=2x, standards=1x) is arbitrary. Add configuration and justification *(added tierWeights to ReviewerConfig, defaults security=3, quality=2, standards=1)*
+- [x] Verdict thresholds should be configurable per-deployment, not hardcoded *(qualityThreshold and maxWarnings already configurable via DB; tierWeights now also configurable)*
+- [x] Report renderer should include actionable fix suggestions, not just findings
 - [ ] Add confidence intervals to scores, not just point estimates
 - [ ] Consider a "suggestions" tier below "warnings" for style/preference items
 
@@ -138,6 +138,7 @@ Iteration 3: Priority 3 — Complete prompt engineering overhaul. Rewrote all 5 
 Iteration 4: Priority 2b — Created `create-review-agent.ts` factory, refactored all 5 agents (3 experts + red-team + judge) to use it. Extracted MAX_OUTPUT_TOKENS constant. All 247 tests pass.
 Iteration 5: Priority 4a — Added `analyzeComponent` tool to shared-tools.ts leveraging Phase 1 AST data. Shows file overview, functions, bridge calls, DOM access, dynamic expressions, dependency issues, and manifest vs code mismatches. Added to expert and red-team tool sets. All 247 tests pass.
 Iteration 6: Priority 5 — Added timeout handling per phase (30s static, 3m experts, 2m red-team/judge), retry with exponential backoff for transient LLM errors (rate limits, timeouts, connection resets), improved progress callbacks with detail messages (finding counts, timing, specific agent info), and phase duration tracking. All 247 tests pass.
+Iteration 7: Priority 6 — Made tier weights configurable (added tierWeights to ReviewerConfig), improved report renderer with actionable fix suggestions per dimension (security, quality, standards), added review stats section to report, added dimension names to critical findings. All 247 tests pass.
 
 ## When You're Done
 

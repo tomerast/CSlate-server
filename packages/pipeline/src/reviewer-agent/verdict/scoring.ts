@@ -17,12 +17,9 @@ function verdictScore(v: string): number {
   return v === 'pass' ? 1 : v === 'warning' ? 0.5 : 0
 }
 
-function tierWeight(tier: DimensionTier): number {
-  switch (tier) {
-    case 'security': return 3
-    case 'quality': return 2
-    case 'standards': return 1
-  }
+function tierWeight(tier: DimensionTier, config: ReviewerConfig): number {
+  const weights = config.tierWeights ?? DEFAULT_REVIEWER_CONFIG.tierWeights
+  return weights[tier]
 }
 
 export function weightedAverage(dimensions: DimensionScore[]): number {
@@ -31,11 +28,11 @@ export function weightedAverage(dimensions: DimensionScore[]): number {
   return denominator === 0 ? 0 : numerator / denominator
 }
 
-function buildScorecard(judgeResult: JudgeResult): DimensionScore[] {
+function buildScorecard(judgeResult: JudgeResult, config: ReviewerConfig): DimensionScore[] {
   return judgeResult.dimensionScores.map((fs: FinalDimensionScore) => {
     const dimConfig = DIMENSIONS.find(d => d.id === fs.dimension)
     const tier: DimensionTier = dimConfig?.tier ?? 'quality'
-    const weight = tierWeight(tier)
+    const weight = tierWeight(tier, config)
     return {
       dimension: fs.dimension,
       name: fs.name,
@@ -84,7 +81,7 @@ export function computeVerdict(
   stats: ReviewStats,
   cost: ReviewCost,
 ): ReviewVerdict {
-  const scorecard = buildScorecard(judgeResult)
+  const scorecard = buildScorecard(judgeResult, config)
   const qualityScore = weightedAverage(scorecard)
   const threshold = config.qualityThreshold ?? DEFAULT_REVIEWER_CONFIG.qualityThreshold
   const maxWarnings = config.maxWarnings ?? DEFAULT_REVIEWER_CONFIG.maxWarnings

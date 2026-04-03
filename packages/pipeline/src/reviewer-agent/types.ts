@@ -626,6 +626,11 @@ export interface ReviewerConfig {
   maxJudgeIterations: number
   qualityThreshold: number         // default: 70
   maxWarnings: number              // default: 5
+  tierWeights: {
+    security: number               // default: 3 — security findings weighted 3x
+    quality: number                // default: 2 — quality findings weighted 2x
+    standards: number              // default: 1 — standards findings weighted 1x
+  }
   modelOverrides: {
     securityExpert?: string
     qualityExpert?: string
@@ -646,6 +651,7 @@ export const DEFAULT_REVIEWER_CONFIG: ReviewerConfig = {
   maxJudgeIterations: 12,
   qualityThreshold: 70,
   maxWarnings: 5,
+  tierWeights: { security: 3, quality: 2, standards: 1 },
   modelOverrides: {},
 }
 
