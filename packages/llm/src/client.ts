@@ -6,6 +6,7 @@ const log = createLogger('llm')
 
 let _anthropic: Anthropic | null = null
 let _openai: OpenAI | null = null
+let _embedding: OpenAI | null = null
 
 // ─── Gateway Resolution ───────────────────────────────────────────────────────
 //
@@ -86,12 +87,36 @@ export async function callAnthropic(options: {
   return block.text
 }
 
+// ─── Embedding Client ─────────────────────────────────────────────────────────
+//
+// Separate from the main OpenAI client so embeddings can use a different
+// provider (e.g. DashScope for Qwen3) without affecting completion calls.
+//
+// EMBEDDING_BASE_URL  — provider base URL (default: OpenAI)
+//   DashScope (Qwen):  https://dashscope.aliyuncs.com/compatible-mode/v1
+//   OpenRouter:        https://openrouter.ai/api/v1
+// EMBEDDING_API_KEY   — provider API key (falls back to OPENAI_API_KEY)
+// EMBEDDING_MODEL     — model name (default: text-embedding-3-small)
+//   Qwen3:             qwen3-embedding-4b  (via DashScope)
+//                      alibaba/qwen3-embedding-4b  (via OpenRouter)
+
+function getEmbeddingClient(): OpenAI {
+  if (!_embedding) {
+    const baseURL = process.env.EMBEDDING_BASE_URL || undefined
+    const apiKey = process.env.EMBEDDING_API_KEY || process.env.OPENAI_API_KEY
+    const via = baseURL ? baseURL.replace(/https?:\/\//, '').split('/')[0] : 'openai'
+    log.debug({ via, baseURL }, 'embedding client init')
+    _embedding = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) })
+  }
+  return _embedding
+}
+
 export async function getEmbedding(text: string): Promise<number[]> {
   const start = Date.now()
   const model = process.env.EMBEDDING_MODEL ?? 'text-embedding-3-small'
   log.debug({ model, textChars: text.length }, 'embedding start')
 
-  const client = getOpenAI()
+  const client = getEmbeddingClient()
   let res: Awaited<ReturnType<typeof client.embeddings.create>>
   try {
     res = await client.embeddings.create({ model, input: text })
