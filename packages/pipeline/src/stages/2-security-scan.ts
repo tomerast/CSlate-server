@@ -1,5 +1,7 @@
 import { PipelineContext, StageResult, Issue } from '../types'
 import { callAnthropic, buildSecurityReviewPrompt, SECURITY_REVIEW_SYSTEM } from '@cslate/llm'
+import { createLogger } from '@cslate/logger'
+const log = createLogger('pipeline:security-scan')
 import securityPatterns from '../../config/security-patterns.json'
 import urlAllowlist from '../../config/url-allowlist.json'
 import urlBlocklist from '../../config/url-blocklist.json'
@@ -19,6 +21,7 @@ const blockedPatterns = (urlBlocklist as UrlConfig).domains
 export async function securityScan(ctx: PipelineContext): Promise<StageResult> {
   const start = Date.now()
   const issues: Issue[] = []
+  log.debug({ uploadId: ctx.uploadId }, 'security scan start')
 
   // Static pattern scan across all files
   for (const [filename, content] of Object.entries(ctx.files)) {
@@ -43,6 +46,9 @@ export async function securityScan(ctx: PipelineContext): Promise<StageResult> {
     }
   }
 
+  const patternHits = issues.filter(i => i.severity === 'critical').length
+  log.debug({ uploadId: ctx.uploadId, patternHits }, 'static pattern scan done')
+
   // URL validation for dataSources
   const flaggedUrls: string[] = []
   for (const ds of ctx.manifest.dataSources ?? []) {
@@ -60,6 +66,8 @@ export async function securityScan(ctx: PipelineContext): Promise<StageResult> {
       flaggedUrls.push(url) // Tier 2: unknown, needs LLM review
     }
   }
+
+  log.debug({ uploadId: ctx.uploadId, flaggedUrlCount: flaggedUrls.length }, 'url validation done')
 
   // If critical static issues found, fail immediately (skip LLM)
   const staticCritical = issues.filter(i => i.severity === 'critical')
@@ -84,12 +92,15 @@ export async function securityScan(ctx: PipelineContext): Promise<StageResult> {
 
     const responseText = await callAnthropic({ model, system: SECURITY_REVIEW_SYSTEM, prompt })
     const response = JSON.parse(responseText) as { verdict: string; issues: Issue[] }
+    log.debug({ uploadId: ctx.uploadId, flaggedUrlCount: flaggedUrls.length, llmVerdict: response.verdict, newIssues: response.issues?.length ?? 0 }, 'url llm review done')
 
     if (response.issues?.length) {
       issues.push(...response.issues)
     }
 
     const hasCritical = issues.some(i => i.severity === 'critical')
+    const criticalCount = issues.filter(i => i.severity === 'critical').length
+    log.debug({ uploadId: ctx.uploadId, criticalCount, durationMs: Date.now() - start }, 'security scan done')
     return {
       stage: 'security_scan',
       status: response.verdict === 'fail' || hasCritical ? 'failed' : 'passed',

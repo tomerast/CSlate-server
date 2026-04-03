@@ -1,11 +1,14 @@
 import { PipelineContext, StageResult, Issue } from '../types'
 import { callAnthropic, buildQualityReviewPrompt, QUALITY_REVIEW_SYSTEM } from '@cslate/llm'
+import { createLogger } from '@cslate/logger'
+const log = createLogger('pipeline:quality-review')
 
 const TAILWIND_COLOR_REGEX = /\b(bg|text|border|ring|fill|stroke)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/g
 
 export async function qualityReview(ctx: PipelineContext): Promise<StageResult> {
   const start = Date.now()
   const issues: Issue[] = []
+  log.debug({ uploadId: ctx.uploadId }, 'quality review start')
 
   // Static pre-check: Tailwind raw color utilities
   for (const [filename, content] of Object.entries(ctx.files)) {
@@ -22,6 +25,9 @@ export async function qualityReview(ctx: PipelineContext): Promise<StageResult> 
       })
     }
   }
+
+  const tokenViolations = issues.filter(i => i.pattern === 'STYLING_TOKEN_VIOLATION').length
+  log.debug({ uploadId: ctx.uploadId, tokenViolations }, 'tailwind token scan done')
 
   // Hard reject if token violation found — no need for LLM
   if (issues.length > 0) {
@@ -44,12 +50,14 @@ export async function qualityReview(ctx: PipelineContext): Promise<StageResult> 
 
     const responseText = await callAnthropic({ model, system: QUALITY_REVIEW_SYSTEM, prompt })
     const response = JSON.parse(responseText) as { verdict: string; issues: Issue[] }
+    log.debug({ uploadId: ctx.uploadId, model, verdict: response.verdict, newIssues: response.issues?.length ?? 0 }, 'quality llm review done')
 
     if (response.issues?.length) {
       issues.push(...response.issues)
     }
 
     const hasCritical = issues.some(i => i.severity === 'critical')
+    log.debug({ uploadId: ctx.uploadId, criticalCount: issues.filter(i => i.severity === 'critical').length, durationMs: Date.now() - start }, 'quality review done')
     return {
       stage: 'quality_review',
       status: response.verdict === 'fail' || hasCritical ? 'failed' : response.verdict === 'warning' ? 'warning' : 'passed',

@@ -1,5 +1,7 @@
 import { PipelineContext, StageResult, Issue } from '../types'
+import { createLogger } from '@cslate/logger'
 import { getDb } from '@cslate/db'
+const log = createLogger('pipeline:dependency-check')
 import { components } from '@cslate/db'
 import { eq, and, inArray } from 'drizzle-orm'
 import npmAllowlist from '../../config/npm-allowlist.json'
@@ -16,6 +18,11 @@ export async function dependencyCheck(ctx: PipelineContext): Promise<StageResult
 
   const npmDeps = ctx.manifest.dependencies?.npmPackages ?? {}
   const cslateDeps = ctx.manifest.dependencies?.cslateComponents ?? []
+  log.debug({
+    uploadId: ctx.uploadId,
+    npmDepCount: Object.keys(npmDeps).length,
+    cslateDepCount: cslateDeps.length,
+  }, 'dependency check start')
 
   // Check npm packages against allowlist
   for (const pkg of Object.keys(npmDeps)) {
@@ -27,6 +34,9 @@ export async function dependencyCheck(ctx: PipelineContext): Promise<StageResult
       })
     }
   }
+
+  const blockedNpm = issues.filter(i => i.pattern && !i.message.includes('cslate')).map(i => i.pattern)
+  log.debug({ uploadId: ctx.uploadId, blockedNpm }, 'npm allowlist check done')
 
   // Check cslate component dependencies exist in DB
   if (cslateDeps.length > 0) {
@@ -53,6 +63,7 @@ export async function dependencyCheck(ctx: PipelineContext): Promise<StageResult
   }
 
   const criticalIssues = issues.filter(i => i.severity === 'critical')
+  log.debug({ uploadId: ctx.uploadId, issueCount: criticalIssues.length, durationMs: Date.now() - start }, 'dependency check done')
   return {
     stage: 'dependency_check',
     status: criticalIssues.length > 0 ? 'failed' : issues.some(i => i.severity === 'warning') ? 'warning' : 'passed',

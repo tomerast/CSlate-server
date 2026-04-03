@@ -1,4 +1,6 @@
 import { PipelineContext, StageResult, Issue, ComponentManifestSchema } from '../types'
+import { createLogger } from '@cslate/logger'
+const log = createLogger('pipeline:manifest-validation')
 
 const REQUIRED_FILES = ['ui.tsx', 'logic.ts', 'types.ts', 'index.ts']
 const OPTIONAL_FILES = ['context.md']
@@ -9,6 +11,7 @@ const MAX_DATA_SOURCES = 5
 export async function manifestValidation(ctx: PipelineContext): Promise<StageResult> {
   const start = Date.now()
   const issues: Issue[] = []
+  log.debug({ uploadId: ctx.uploadId, fileCount: Object.keys(ctx.files).length }, 'manifest validation start')
 
   // 1. Validate manifest schema with Zod
   const parseResult = ComponentManifestSchema.safeParse(ctx.manifest)
@@ -17,6 +20,7 @@ export async function manifestValidation(ctx: PipelineContext): Promise<StageRes
       severity: 'critical' as const,
       message: `Manifest validation: ${issue.path.join('.')} — ${issue.message}`,
     }))
+    log.debug({ uploadId: ctx.uploadId, zodErrors: parseResult.error.issues.length }, 'manifest schema invalid')
     return {
       stage: 'manifest_validation',
       status: 'failed',
@@ -102,9 +106,17 @@ export async function manifestValidation(ctx: PipelineContext): Promise<StageRes
   }
 
   const criticalIssues = issues.filter(i => i.severity === 'critical')
+  const status = criticalIssues.length > 0 ? 'failed' : issues.some(i => i.severity === 'warning') ? 'warning' : 'passed'
+  log.debug({
+    uploadId: ctx.uploadId,
+    status,
+    criticalCount: criticalIssues.length,
+    warningCount: issues.filter(i => i.severity === 'warning').length,
+    durationMs: Date.now() - start,
+  }, 'manifest validation done')
   return {
     stage: 'manifest_validation',
-    status: criticalIssues.length > 0 ? 'failed' : issues.some(i => i.severity === 'warning') ? 'warning' : 'passed',
+    status,
     duration: Date.now() - start,
     issues: issues.length > 0 ? issues : undefined,
   }
