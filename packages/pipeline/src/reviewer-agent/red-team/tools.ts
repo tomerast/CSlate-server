@@ -2,7 +2,7 @@ import { buildTool } from '@cslate/shared/agent'
 import { z } from 'zod'
 import { BRIDGE_API_SPEC, PLATFORM_CONSTRAINTS } from './platform-spec'
 import type { StaticAnalysisResult, ExpertAgentResult } from '../types'
-import { buildReadFileTool, buildListFilesTool, buildSearchCodeTool, buildGetManifestTool } from '../shared-tools'
+import { buildReadFileTool, buildListFilesTool, buildSearchCodeTool, buildGetManifestTool, buildAnalyzeComponentTool } from '../shared-tools'
 
 export function buildRedTeamTools(
   files: Record<string, string>,
@@ -15,6 +15,7 @@ export function buildRedTeamTools(
     buildListFilesTool(files),
     buildSearchCodeTool(files),
     buildGetManifestTool(manifest),
+    buildAnalyzeComponentTool(files, manifest, staticResult),
 
     buildTool({
       name: 'getBridgeAPISpec',
