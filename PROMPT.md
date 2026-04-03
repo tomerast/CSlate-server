@@ -104,10 +104,10 @@ This is where the real capability improvement lives. Study the reference prompts
 - [ ] Consider adding a `runInSandbox` tool concept for the red-team to actually test exploit attempts (even if simulated)
 
 ### Priority 5: Orchestration Improvements  
-- [ ] Add timeout handling per phase — if an expert takes too long, gracefully degrade
+- [x] Add timeout handling per phase — if an expert takes too long, gracefully degrade
 - [ ] Improve short-circuit logic — current logic is binary (critical = skip). Add nuance: security criticals skip to verdict, but quality criticals still benefit from judge verification
-- [ ] Add retry logic for transient LLM failures (rate limits, timeouts)
-- [ ] Improve progress callbacks — report which specific agent is running, what phase, estimated completion
+- [x] Add retry logic for transient LLM failures (rate limits, timeouts)
+- [x] Improve progress callbacks — report which specific agent is running, what phase, estimated completion
 - [ ] Consider streaming partial results — don't wait for all experts to finish before showing early findings
 
 ### Priority 6: Scoring & Verdict
@@ -137,6 +137,7 @@ Iteration 2: Priority 2a — Extracted shared tools (readFile, listFiles, search
 Iteration 3: Priority 3 — Complete prompt engineering overhaul. Rewrote all 5 agent prompts (security, quality, standards, red-team, judge) with structured methodology, severity tables, few-shot examples, shared output schema, and critical rules sections. All 247 tests pass.
 Iteration 4: Priority 2b — Created `create-review-agent.ts` factory, refactored all 5 agents (3 experts + red-team + judge) to use it. Extracted MAX_OUTPUT_TOKENS constant. All 247 tests pass.
 Iteration 5: Priority 4a — Added `analyzeComponent` tool to shared-tools.ts leveraging Phase 1 AST data. Shows file overview, functions, bridge calls, DOM access, dynamic expressions, dependency issues, and manifest vs code mismatches. Added to expert and red-team tool sets. All 247 tests pass.
+Iteration 6: Priority 5 — Added timeout handling per phase (30s static, 3m experts, 2m red-team/judge), retry with exponential backoff for transient LLM errors (rate limits, timeouts, connection resets), improved progress callbacks with detail messages (finding counts, timing, specific agent info), and phase duration tracking. All 247 tests pass.
 
 ## When You're Done
 
