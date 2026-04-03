@@ -45,6 +45,7 @@ const OUTPUT_SCHEMA = `
       "tier": "security"|"quality"|"standards",
       "verdict": "pass"|"fail"|"warning",
       "confidence": <0-100>,
+      "confidenceInterval": { "lower": <0-100>, "upper": <0-100>, "width": <number> },
       "weight": 1.0,
       "weightedScore": <0-100>,
       "summary": "<one sentence explaining the verdict>",

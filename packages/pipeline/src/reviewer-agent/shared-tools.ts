@@ -60,7 +60,9 @@ export function buildSearchCodeTool(files: Record<string, string>): CSTool {
           if (matched) results.push(`${fname}:${idx + 1}: ${line.trim()}`)
         })
       }
-      return { data: results.slice(0, MAX_SEARCH_RESULTS).join('\n') || 'No matches found' }
+      const truncated = results.length > MAX_SEARCH_RESULTS
+      const output = results.slice(0, MAX_SEARCH_RESULTS).join('\n')
+      return { data: truncated ? `${output}\n[Truncated to ${MAX_SEARCH_RESULTS} results — use a more specific pattern to see all matches]` : output || 'No matches found' }
     },
   })
 }
@@ -273,7 +275,9 @@ Supported queries:
         }
       }
 
-      return { data: results.slice(0, MAX_SEARCH_RESULTS).join('\n') || 'No matches found' }
+      const truncated = results.length > MAX_SEARCH_RESULTS
+      const output = results.slice(0, MAX_SEARCH_RESULTS).join('\n')
+      return { data: truncated ? `${output}\n[Truncated to ${MAX_SEARCH_RESULTS} results — use a more specific pattern to see all matches]` : output || 'No matches found' }
     },
   })
 }

@@ -43,9 +43,10 @@ export async function loadKnowledgeBase(db: Db): Promise<ReviewerKnowledgeBase> 
     reason: r.reason,
   }))
 
-  const latestUpdate = [...standardRows, ...patternRows]
-    .map(r => ('createdAt' in r && r.createdAt ? r.createdAt : new Date(0)))
-    .sort((a, b) => b.getTime() - a.getTime())[0] ?? new Date()
+  const latestUpdate = [
+    ...standardRows.map(r => r.createdAt ?? new Date(0)),
+    ...patternRows.map(r => r.lastSeen ?? new Date(0)),
+  ].sort((a, b) => b.getTime() - a.getTime())[0] ?? new Date()
 
   return {
     version: codeStandards.length + patternLibrary.length + dimensionWeights.length,

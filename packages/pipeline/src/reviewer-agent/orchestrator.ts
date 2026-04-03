@@ -17,8 +17,6 @@ import type {
   ExpertAgentResult,
   RedTeamResult,
   JudgeResult,
-  VerifiedFinding,
-  FinalDimensionScore,
 } from './types'
 import { DEFAULT_REVIEWER_CONFIG } from './types'
 
@@ -183,6 +181,7 @@ export async function agentReview(
   const cost = buildCost(costEntries)
   const verdict = computeVerdict(judgeResult, redTeamResult, config, stats, cost)
   phaseDurations.verdict = Date.now() - phaseStart5
+  stats.phaseDurations.verdict = phaseDurations.verdict
   await onProgress?.({ phase: 'verdict', status: 'complete', detail: `${verdict.decision}: ${verdict.decisionReason}` })
 
   // Record outcome for learning
@@ -225,43 +224,6 @@ function buildRejectResult(phase: string, criticalFindings: StaticFinding[], sta
   }
 }
 
-function buildMinimalJudgeResult(expertResults: ExpertAgentResult[]): JudgeResult {
-  const allFindings = expertResults.flatMap(r => r.findings)
-  const verifiedFindings: VerifiedFinding[] = allFindings.map(f => ({
-    ...f,
-    verificationMethod: 'reasoning_confirmed' as const,
-    verificationEvidence: 'Security expert confirmed — red-team and judge skipped',
-  }))
-
-  const dimensionScores: FinalDimensionScore[] = expertResults
-    .flatMap(r => r.dimensions)
-    .map(d => ({
-      dimension: d.dimension,
-      name: d.name,
-      verdict: d.verdict,
-      confidence: d.confidence,
-      summary: d.summary,
-      verifiedFindings: verifiedFindings.filter(f => f.dimension === d.dimension).length,
-      criticalCount: verifiedFindings.filter(f => f.dimension === d.dimension && f.severity === 'critical').length,
-      warningCount: verifiedFindings.filter(f => f.dimension === d.dimension && f.severity === 'warning').length,
-    }))
-
-  return {
-    verifiedFindings,
-    rejectedFindings: [],
-    resolvedConflicts: [],
-    dimensionScores,
-    stats: {
-      totalFindingsReceived: allFindings.length,
-      hallucinated: 0,
-      duplicates: 0,
-      conflictsResolved: 0,
-      verified: verifiedFindings.length,
-    },
-    iterationsUsed: 0,
-    tokenCost: { input: 0, output: 0 },
-  }
-}
 
 function buildMinimalRedTeamResult(): RedTeamResult {
   return {
@@ -281,7 +243,7 @@ function buildStats(
   phaseDurations: ReviewStats['phaseDurations'],
   staticResult: StaticAnalysisResult,
   expertResults: ExpertAgentResult[],
-  redTeamResult: RedTeamResult | null,
+  redTeamResult: RedTeamResult,
   judgeResult: JudgeResult,
 ): ReviewStats {
   const allFindings = expertResults.flatMap(r => r.findings)
@@ -298,7 +260,7 @@ function buildStats(
       securityExpert: expertResults.find(r => r.agent === 'security-expert')?.iterationsUsed ?? 0,
       qualityExpert: expertResults.find(r => r.agent === 'quality-expert')?.iterationsUsed ?? 0,
       standardsExpert: expertResults.find(r => r.agent === 'standards-expert')?.iterationsUsed ?? 0,
-      redTeam: redTeamResult?.iterationsUsed ?? 0,
+      redTeam: redTeamResult.iterationsUsed,
       judge: judgeResult.iterationsUsed,
     },
   }
