@@ -80,7 +80,7 @@ Work through these in order of impact. Each iteration should tackle ONE focused 
 - [x] Remove catch blocks that swallow errors silently (e.g., the `/* learning module not yet available */` catches in expert agents) — if the learning system isn't ready, don't pretend it might be
 
 ### Priority 2: Code Quality & Consistency
-- [ ] Tool definitions across `experts/tools.ts`, `red-team/tools.ts`, `judge/tools.ts` share ~70% code. Extract shared tool implementations into a common module, then compose phase-specific tool sets from it
+- [x] Tool definitions across `experts/tools.ts`, `red-team/tools.ts`, `judge/tools.ts` share ~70% code. Extract shared tool implementations into a common module, then compose phase-specific tool sets from it
 - [ ] Type definitions in `types.ts` (675 lines) — split into logical groups: `dimensions.ts`, `phases.ts`, `config.ts`, `results.ts`
 - [ ] Ensure consistent error handling: every tool should validate inputs and return structured errors, not throw raw exceptions
 - [ ] Standardize how agents are created — currently each expert/red-team/judge has slightly different setup. Create a shared `createReviewAgent(config)` factory
@@ -164,6 +164,7 @@ This is where the real capability improvement lives. Study the reference prompts
 
 <!-- Each iteration adds a line here: "Iteration N: <what was done>" -->
 Iteration 1: Priority 1 — Wired up `loadKnowledgeBase()` to query real DB tables (reviewerStandards, reviewerPatterns, reviewerDimensionWeights), removed error-swallowing try/catch in all 3 expert agents replacing with direct imports of `injectKnowledge`, verified all barrel files and imports are clean. All 247 tests pass.
+Iteration 2: Priority 2a — Extracted shared tools (readFile, listFiles, searchCode, getManifest) into `shared-tools.ts`, refactored all 3 tool files to compose from shared + phase-specific tools. All 247 tests pass.
 
 ## When You're Done
 
