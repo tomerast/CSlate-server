@@ -3,6 +3,8 @@ import { getEmbedding } from '@cslate/llm'
 import { getPool, createComponent, searchComponents } from '@cslate/db'
 import { eq, and } from 'drizzle-orm'
 import { getDb, components } from '@cslate/db'
+import { createLogger } from '@cslate/logger'
+const log = createLogger('pipeline:embedding')
 
 function buildEmbeddingText(ctx: PipelineContext, catalogData: Record<string, unknown>): string {
   const m = ctx.manifest
@@ -28,6 +30,7 @@ export async function embeddingAndStore(ctx: PipelineContext): Promise<StageResu
   const start = Date.now()
 
   try {
+    log.debug({ uploadId: ctx.uploadId }, 'embedding start')
     // Get catalog data from previous stage
     const catalogResult = ctx.previousResults.find(r => r.stage === 'cataloging')
     const catalogData = catalogResult?.data ?? {}
@@ -35,6 +38,7 @@ export async function embeddingAndStore(ctx: PipelineContext): Promise<StageResu
     // Build embedding text and generate embedding
     const embeddingText = buildEmbeddingText(ctx, catalogData)
     const embedding = await getEmbedding(embeddingText)
+    log.debug({ uploadId: ctx.uploadId, embeddingDims: embedding.length }, 'embedding generated')
 
     // Check for existing component with same name + author (versioning)
     const db = getDb()
@@ -64,6 +68,7 @@ export async function embeddingAndStore(ctx: PipelineContext): Promise<StageResu
       .filter(c => c.name !== ctx.manifest.name)
       .slice(0, 5)
       .map(c => c.name)
+    log.debug({ uploadId: ctx.uploadId, similarCount: similarTo.length, similarTo }, 'similar components found')
 
     // Prepare enriched manifest
     const enrichedManifest = {
@@ -94,6 +99,7 @@ export async function embeddingAndStore(ctx: PipelineContext): Promise<StageResu
       parentId: parentId ?? undefined,
       embedding,
     })
+    log.info({ uploadId: ctx.uploadId, componentId: component.id, componentName: ctx.manifest.name }, 'component stored')
 
     // Update upload with component_id
     if (upload) {
@@ -111,6 +117,7 @@ export async function embeddingAndStore(ctx: PipelineContext): Promise<StageResu
       data: { componentId: component.id },
     }
   } catch (err) {
+    log.warn({ uploadId: ctx.uploadId, err }, 'embedding/store failed')
     return {
       stage: 'embedding',
       status: 'failed',

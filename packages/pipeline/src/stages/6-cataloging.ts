@@ -1,5 +1,7 @@
 import { PipelineContext, StageResult } from '../types'
 import { callAnthropic, buildCatalogingPrompt, CATALOGING_SYSTEM } from '@cslate/llm'
+import { createLogger } from '@cslate/logger'
+const log = createLogger('pipeline:cataloging')
 
 interface CatalogingOutput {
   summary: string
@@ -16,6 +18,7 @@ interface CatalogingOutput {
 
 export async function cataloging(ctx: PipelineContext): Promise<StageResult> {
   const start = Date.now()
+  log.debug({ uploadId: ctx.uploadId, model: process.env.LLM_CATALOG_MODEL ?? 'claude-haiku-4-5-20251001' }, 'cataloging start')
 
   try {
     const model = process.env.LLM_CATALOG_MODEL ?? 'claude-haiku-4-5-20251001'
@@ -28,6 +31,13 @@ export async function cataloging(ctx: PipelineContext): Promise<StageResult> {
 
     const responseText = await callAnthropic({ model, system: CATALOGING_SYSTEM, prompt })
     const output = JSON.parse(responseText) as CatalogingOutput
+    log.debug({
+      uploadId: ctx.uploadId,
+      category: output.category,
+      complexity: output.complexity,
+      tagCount: output.tags.length,
+      summaryChars: output.summary.length,
+    }, 'cataloging llm done')
 
     return {
       stage: 'cataloging',
@@ -45,6 +55,7 @@ export async function cataloging(ctx: PipelineContext): Promise<StageResult> {
     }
   } catch (err) {
     // Cataloging always passes — log error and return minimal data
+    log.warn({ uploadId: ctx.uploadId, err }, 'cataloging failed')
     return {
       stage: 'cataloging',
       status: 'passed',

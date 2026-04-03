@@ -4,6 +4,8 @@ import { mkdirSync, writeFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
+import { createLogger } from '@cslate/logger'
+const log = createLogger('pipeline:test-render')
 
 // Bridge type stubs injected into each test compile
 const BRIDGE_STUB = `
@@ -31,6 +33,7 @@ const TSCONFIG_TEST = {
 
 export async function testRender(ctx: PipelineContext): Promise<StageResult> {
   const start = Date.now()
+  log.debug({ uploadId: ctx.uploadId, fileCount: Object.keys(ctx.files).length }, 'test render start')
   const tmpDir = join(tmpdir(), `cslate-render-${randomUUID()}`)
 
   try {
@@ -83,6 +86,7 @@ export async function testRender(ctx: PipelineContext): Promise<StageResult> {
       proc.on('error', reject)
     })
 
+    log.debug({ uploadId: ctx.uploadId, durationMs: Date.now() - start }, 'tsc compilation passed')
     return {
       stage: 'test_render',
       status: 'passed',
@@ -93,6 +97,7 @@ export async function testRender(ctx: PipelineContext): Promise<StageResult> {
 
     // Parse TypeScript error output into issues
     const issues: Issue[] = parseTypeScriptErrors(output)
+    log.debug({ uploadId: ctx.uploadId, errorCount: issues.length, durationMs: Date.now() - start }, 'tsc compilation failed')
 
     return {
       stage: 'test_render',
