@@ -1,8 +1,18 @@
 import { z } from 'zod'
 
-// ─── ComponentManifest ────────────────────────────────────────────────────────
-// This mirrors @cslate/shared ComponentManifest schema.
-// When @cslate/shared is published, import from there instead.
+// ─── ComponentManifest (upload/catalog schema) ────────────────────────────────
+// This is the server-side upload contract, intentionally different from
+// @cslate/shared ComponentManifestSchema (the client-side source format).
+//
+// Key differences from the shared schema:
+//   - inputs/outputs/events/actions: arrays here (shared uses records)
+//   - dataSources: simple array (shared uses a record with endpoint detail)
+//   - files: array of filename strings (shared uses FileEntry objects)
+//   - title: added for catalog display (shared only has `name` as slug)
+//   - version: required semver (shared treats it as optional)
+//
+// The client normalizes its manifest.json to this format before uploading
+// (see CSlateServerClient.normalizeManifest).
 
 const DataSourceSchema = z.object({
   id: z.string(),
