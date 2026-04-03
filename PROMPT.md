@@ -99,7 +99,7 @@ This is where the real capability improvement lives. Study the reference prompts
 ### Priority 4: Agent Capability Improvements
 - [x] Add a `analyzeComponent` tool that gives agents a high-level summary of what the component does (renders, state, effects, event handlers) so they don't waste iterations understanding basics
 - [x] Add a `compareToManifest` tool that automatically diffs manifest claims against actual code behavior *(merged into analyzeComponent — it includes manifest vs code mismatch section)*
-- [ ] Improve `searchCode` tool — add support for AST-aware searches (find all function calls to X, find all state mutations, find all effect dependencies)
+- [x] Improve `searchCode` tool — add support for AST-aware searches (find all function calls to X, find all state mutations, find all effect dependencies) *(added searchAST tool leveraging CodeStructureMap: functionCalls, imports, exports, functions, bridgeCalls, domAccess, dynamicExpressions, stateSetters, effectDeps)*
 - [x] Add `getComponentContext` tool that extracts React-specific info: hooks used, props interface, render tree structure, event handlers
 - [ ] Consider adding a `runInSandbox` tool concept for the red-team to actually test exploit attempts (even if simulated)
 
@@ -142,6 +142,7 @@ Iteration 7: Priority 6 — Made tier weights configurable (added tierWeights to
 Iteration 8: Priority 2c + 4b — Added `getComponentContext` tool (hooks, props, effects, state, event handlers, memoization). Added input validation (regex error handling) to searchCode, checkPattern, and verifyFinding tools across all phases. All 247 tests pass.
 Iteration 9: Priority 5b — Improved short-circuit logic: security criticals now skip red-team but still run judge (anti-hallucination verification). Previously both were skipped, risking false positives going unverified. All 247 tests pass.
 Iteration 10: Priority 2c — Split types.ts (681 lines) into types/ directory with 5 sub-files (dimensions.ts, phases.ts, results.ts, learning.ts, config.ts). Original types.ts kept as barrel re-export for zero import churn across 47 import sites. All 247 tests pass.
+Iteration 11: Priority 4c — Added searchAST tool to shared-tools.ts leveraging CodeStructureMap from Phase 1. Supports 9 query types: functionCalls, imports, exports, functions, bridgeCalls, domAccess, dynamicExpressions, stateSetters, effectDeps. Wired into expert and red-team tool sets. All 247 tests pass.
 
 ## When You're Done
 

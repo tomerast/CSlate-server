@@ -1,7 +1,7 @@
 import { buildTool, type CSTool } from '@cslate/shared/agent'
 import { z } from 'zod'
 import type { StaticAnalysisResult } from '../types'
-import { buildReadFileTool, buildListFilesTool, buildSearchCodeTool, buildGetManifestTool, buildAnalyzeComponentTool, buildGetComponentContextTool } from '../shared-tools'
+import { buildReadFileTool, buildListFilesTool, buildSearchCodeTool, buildGetManifestTool, buildAnalyzeComponentTool, buildGetComponentContextTool, buildSearchASTTool } from '../shared-tools'
 
 export function buildExpertTools(
   files: Record<string, string>,
@@ -15,6 +15,7 @@ export function buildExpertTools(
     buildGetManifestTool(manifest),
     buildAnalyzeComponentTool(files, manifest, staticResult),
     buildGetComponentContextTool(files),
+    buildSearchASTTool(files, staticResult),
 
     buildTool({
       name: 'checkPattern',

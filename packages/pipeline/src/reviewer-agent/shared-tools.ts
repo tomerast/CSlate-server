@@ -152,6 +152,132 @@ export function buildGetComponentContextTool(files: Record<string, string>): CST
   })
 }
 
+export function buildSearchASTTool(
+  files: Record<string, string>,
+  staticResult: StaticAnalysisResult,
+): CSTool {
+  return buildTool({
+    name: 'searchAST',
+    description: `AST-aware search across all files. Use instead of regex when searching for structural code patterns.
+Supported queries:
+- functionCalls:<name> — find all calls to a specific function (e.g., "functionCalls:fetch", "functionCalls:setState")
+- imports:<module> — find all imports from a module (e.g., "imports:react", "imports:./utils")
+- exports — list all exports across files
+- functions — list all function declarations with signatures
+- bridgeCalls — list all bridge API calls (fetch/subscribe/getConfig)
+- domAccess — list all window/document/globalThis/navigator access
+- dynamicExpressions — list eval, Function, computed property access
+- stateSetters — find all React setState calls
+- effectDeps — find all useEffect dependency arrays`,
+    inputSchema: z.object({
+      query: z.string().describe('Query in the format "type:arg" or just "type". See tool description for supported queries.'),
+      filename: z.string().optional().describe('Limit search to a specific file'),
+    }),
+    isReadOnly: () => true,
+    call: async ({ query, filename }: { query: string; filename?: string }) => {
+      const { codeStructure } = staticResult
+      const [queryType, ...argParts] = query.split(':')
+      const arg = argParts.join(':').toLowerCase()
+      const results: string[] = []
+
+      const targetFiles = filename
+        ? { [filename]: codeStructure.files[filename] }
+        : codeStructure.files
+
+      for (const [fname, structure] of Object.entries(targetFiles)) {
+        if (!structure) continue
+        const content = files[fname]
+        if (!content) continue
+        const lines = content.split('\n')
+
+        switch (queryType) {
+          case 'functionCalls': {
+            if (!arg) { results.push('ERROR: functionCalls requires an argument, e.g. functionCalls:fetch'); break }
+            const callRegex = new RegExp(`\\b${arg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\(`, 'gi')
+            lines.forEach((line, idx) => {
+              if (callRegex.test(line)) {
+                results.push(`${fname}:${idx + 1}: ${line.trim()}`)
+              }
+              callRegex.lastIndex = 0
+            })
+            break
+          }
+          case 'imports': {
+            const filtered = arg
+              ? structure.imports.filter(i => i.source.toLowerCase().includes(arg))
+              : structure.imports
+            for (const imp of filtered) {
+              const specifiers = imp.isDefault ? `default` : imp.specifiers.join(', ')
+              results.push(`${fname}:${imp.line}: import { ${specifiers} } from '${imp.source}'`)
+            }
+            break
+          }
+          case 'exports': {
+            for (const exp of structure.exports) {
+              results.push(`${fname}:${exp.line}: export ${exp.type} ${exp.name}`)
+            }
+            break
+          }
+          case 'functions': {
+            for (const fn of structure.functions) {
+              const flags = [fn.isAsync ? 'async' : '', fn.isExported ? 'exported' : ''].filter(Boolean).join(', ')
+              results.push(`${fname}:${fn.line}: ${fn.name}(${fn.params.join(', ')})${fn.returnType ? `: ${fn.returnType}` : ''} [${fn.lineCount} lines${flags ? ', ' + flags : ''}]`)
+            }
+            break
+          }
+          case 'bridgeCalls': {
+            for (const bc of structure.bridgeCalls) {
+              const dynamic = bc.isDynamic ? ' ⚠️ DYNAMIC' : ''
+              results.push(`${fname}:${bc.line}: bridge.${bc.type}(${bc.sourceId ?? '???'})${dynamic} — ${bc.expression}`)
+            }
+            break
+          }
+          case 'domAccess': {
+            for (const da of structure.domAccess) {
+              results.push(`${fname}:${da.line}: ${da.expression}`)
+            }
+            break
+          }
+          case 'dynamicExpressions': {
+            for (const de of structure.dynamicExpressions) {
+              results.push(`${fname}:${de.line}: [${de.risk} risk] ${de.type} — ${de.expression}`)
+            }
+            break
+          }
+          case 'stateSetters': {
+            const setterRegex = /\bset[A-Z]\w*\s*\(/g
+            lines.forEach((line, idx) => {
+              if (setterRegex.test(line)) {
+                results.push(`${fname}:${idx + 1}: ${line.trim()}`)
+              }
+              setterRegex.lastIndex = 0
+            })
+            break
+          }
+          case 'effectDeps': {
+            const effectRegex = /useEffect\(\s*\(\)\s*=>\s*\{/g
+            let match
+            while ((match = effectRegex.exec(content)) !== null) {
+              const lineNum = content.substring(0, match.index).split('\n').length
+              // Find the closing bracket and deps array
+              const afterEffect = content.substring(match.index)
+              const depsMatch = afterEffect.match(/\}\s*,\s*\[([^\]]*)\]\s*\)/)
+              const deps = depsMatch ? depsMatch[1].trim() || 'none (empty array)' : 'not found'
+              const hasCleanup = afterEffect.substring(0, afterEffect.indexOf('},') > 0 ? afterEffect.indexOf('},') : 200).includes('return ')
+              results.push(`${fname}:${lineNum}: useEffect deps=[${deps}]${hasCleanup ? '' : ' ⚠️ NO CLEANUP'}`)
+            }
+            break
+          }
+          default:
+            return { data: `Unknown query type "${queryType}". Supported: functionCalls, imports, exports, functions, bridgeCalls, domAccess, dynamicExpressions, stateSetters, effectDeps` }
+        }
+      }
+
+      return { data: results.slice(0, MAX_SEARCH_RESULTS).join('\n') || 'No matches found' }
+    },
+  })
+}
+
 export function buildAnalyzeComponentTool(
   files: Record<string, string>,
   manifest: Record<string, unknown>,
