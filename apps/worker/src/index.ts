@@ -1,16 +1,11 @@
 import 'dotenv/config'
-import pino from 'pino'
+import { createLogger } from '@cslate/logger'
 import { getBoss, stopBoss, JOB_NAMES, registerMaintenanceSchedules, PIPELINE_REVIEW_JOB } from '@cslate/queue'
 import { reviewHandler } from './handlers/review'
 import { cleanupHandler } from './handlers/maintenance'
 import { pipelineReviewHandler } from './handlers/pipeline-review'
 
-export const log = pino({
-  level: process.env.LOG_LEVEL ?? 'info',
-  transport: process.env.NODE_ENV !== 'production'
-    ? { target: 'pino-pretty', options: { colorize: true } }
-    : undefined,
-})
+export const log = createLogger('worker')
 
 async function main() {
   log.info('Starting CSlate worker...')

@@ -10,8 +10,10 @@ import type { ReviewJobData } from '@cslate/queue'
 export async function reviewHandler(job: Job<ReviewJobData>): Promise<void> {
   const { uploadId } = job.data
   log.info({ uploadId }, 'Starting review pipeline')
+  const jobStart = Date.now()
 
   const upload = await getUploadById(uploadId)
+  log.debug({ uploadId, componentName: (upload?.manifest as any)?.name }, 'job details')
   if (!upload) {
     log.error({ uploadId }, 'Upload not found')
     return
@@ -65,11 +67,13 @@ export async function reviewHandler(job: Job<ReviewJobData>): Promise<void> {
       )
     })
 
+    const totalDurationMs = Date.now() - jobStart
+
     if (result.status === 'approved') {
-      log.info({ uploadId }, 'Component approved')
+      log.info({ uploadId, totalDurationMs }, 'component approved')
       // component_id is set by embedding stage's updateUpload call
     } else {
-      log.info({ uploadId, stages: result.completedStages.map(s => s.stage) }, 'Component rejected')
+      log.info({ uploadId, totalDurationMs, stages: result.completedStages.map(s => s.stage) }, 'component rejected')
       const rejectionReasons = result.completedStages
         .filter(s => s.status === 'failed')
         .map(s => ({ stage: s.stage, issues: s.issues ?? [] }))
@@ -87,7 +91,8 @@ export async function reviewHandler(job: Job<ReviewJobData>): Promise<void> {
       )
     }
   } catch (err) {
-    log.error({ uploadId, err }, 'Pipeline threw unexpected error')
+    const totalDurationMs = Date.now() - jobStart
+    log.error({ uploadId, totalDurationMs, err }, 'pipeline threw unexpected error')
     await updateUpload(uploadId, { status: 'rejected' })
 
     const pool = getPool()
