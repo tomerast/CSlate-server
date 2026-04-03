@@ -3,6 +3,7 @@ import type { AgentRegistry } from '@cslate/shared/agent'
 import type { ExpertAgentResult, StaticAnalysisResult, ReviewerKnowledgeBase, ReviewerConfig } from '../types'
 import { buildExpertTools } from './tools'
 import { QUALITY_EXPERT_SYSTEM_PROMPT } from './prompts'
+import { injectKnowledge } from '../learning/knowledge-injector'
 
 export async function runQualityExpert(
   files: Record<string, string>,
@@ -15,11 +16,7 @@ export async function runQualityExpert(
   const tools = buildExpertTools(files, manifest, staticResult)
   const modelId = config.modelOverrides?.qualityExpert ?? 'anthropic:claude-sonnet-4-6'
 
-  let systemPrompt = QUALITY_EXPERT_SYSTEM_PROMPT
-  try {
-    const { injectKnowledge } = await import('../learning/knowledge-injector')
-    systemPrompt = injectKnowledge(systemPrompt, knowledgeBase, [4, 5, 6, 7])
-  } catch { /* learning module not yet available */ }
+  const systemPrompt = injectKnowledge(QUALITY_EXPERT_SYSTEM_PROMPT, knowledgeBase, [4, 5, 6, 7])
 
   const fileList = Object.keys(files).join(', ')
   const staticSummary = `Static analysis found: ${staticResult.criticalFindings.length} critical, ${staticResult.warnings.length} warnings`

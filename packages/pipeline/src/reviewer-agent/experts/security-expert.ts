@@ -3,6 +3,7 @@ import type { AgentRegistry } from '@cslate/shared/agent'
 import type { ExpertAgentResult, StaticAnalysisResult, ReviewerKnowledgeBase, ReviewerConfig } from '../types'
 import { buildExpertTools } from './tools'
 import { SECURITY_EXPERT_SYSTEM_PROMPT } from './prompts'
+import { injectKnowledge } from '../learning/knowledge-injector'
 
 export async function runSecurityExpert(
   files: Record<string, string>,
@@ -15,12 +16,7 @@ export async function runSecurityExpert(
   const tools = buildExpertTools(files, manifest, staticResult)
   const modelId = config.modelOverrides?.securityExpert ?? 'anthropic:claude-sonnet-4-6'
 
-  // Inject learned knowledge if available
-  let systemPrompt = SECURITY_EXPERT_SYSTEM_PROMPT
-  try {
-    const { injectKnowledge } = await import('../learning/knowledge-injector')
-    systemPrompt = injectKnowledge(systemPrompt, knowledgeBase, [1, 2, 3])
-  } catch { /* learning module not yet available */ }
+  const systemPrompt = injectKnowledge(SECURITY_EXPERT_SYSTEM_PROMPT, knowledgeBase, [1, 2, 3])
 
   const fileList = Object.keys(files).join(', ')
   const staticSummary = `Static analysis found: ${staticResult.criticalFindings.length} critical, ${staticResult.warnings.length} warnings`

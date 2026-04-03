@@ -1,313 +1,172 @@
-# Ralph Loop: Phase 1 — Static Analysis
+# Reviewer Agent Overhaul — Ralph Loop Prompt
 
-## Mission
+You are iteratively improving the CSlate reviewer agent pipeline. Each iteration you will assess the current state, pick the highest-impact improvement, execute it, verify it compiles, and commit. You see your own previous work in the files and git history — use `git log --oneline -20` and `git diff HEAD~1` to understand what you already did. Do NOT repeat work from prior iterations.
 
-Build the deterministic static analysis phase for the CSlate reviewer agent. This runs BEFORE any LLM calls. It uses TypeScript AST parsing, regex pattern matching, and type checking to surface obvious issues cheaply. Critical findings here short-circuit the entire pipeline — no LLM spend needed.
+## Goal
 
-## Scope
+Transform the reviewer agent from a working prototype into a **production-grade, best-in-class AI code review system**. The agent reviews user-submitted UI components for security, quality, and standards compliance using a 5-phase pipeline with parallel LLM agents.
 
-Build everything in `packages/pipeline/src/reviewer-agent/static/`.
+## Project Layout
 
-## Key Files
-
-**Create:**
-- `packages/pipeline/src/reviewer-agent/static/index.ts` — `runStaticAnalysis()` entry point
-- `packages/pipeline/src/reviewer-agent/static/ast-parser.ts` — AST-based code structure extraction
-- `packages/pipeline/src/reviewer-agent/static/pattern-matcher.ts` — Regex security pattern matching
-- `packages/pipeline/src/reviewer-agent/static/type-checker.ts` — TypeScript compiler API type checking
-- `packages/pipeline/src/reviewer-agent/static/dependency-analyzer.ts` — Import graph + circular dep detection
-- Tests in `packages/pipeline/src/reviewer-agent/static/__tests__/`
-
-**Read for reference (do NOT modify):**
-- `packages/pipeline/src/reviewer-agent/types.ts` — ALL shared types (StaticAnalysisResult, StaticFinding, CodeStructureMap, FileStructure, BridgeCallInfo, etc.)
-- `packages/pipeline/src/stages/2-security-scan.ts` — Existing security patterns to migrate
-- `packages/pipeline/src/stages/4-quality-review.ts` — Existing quality checks to reference
-- `packages/pipeline/src/stages/5-test-render.ts` — Existing tsc wrapper to reference
-
-## First Step: Install Dependencies
-
-```bash
-pnpm add @typescript-eslint/typescript-estree --filter @cslate/pipeline
-pnpm install
+```
+packages/pipeline/src/reviewer-agent/
+├── orchestrator.ts          # Main 5-phase pipeline entry point
+├── types.ts                 # All type definitions (675 lines)
+├── index.ts                 # Re-exports
+├── static/                  # Phase 1: Pattern matching, AST, type checking
+│   ├── pattern-matcher.ts
+│   ├── ast-parser.ts
+│   ├── type-checker.ts
+│   ├── dependency-analyzer.ts
+│   └── index.ts
+├── experts/                 # Phase 2: Parallel LLM expert agents
+│   ├── security-expert.ts
+│   ├── quality-expert.ts
+│   ├── standards-expert.ts
+│   ├── prompts.ts           # System prompts for all 3 experts
+│   ├── tools.ts             # Shared agent tools
+│   └── index.ts
+├── red-team/                # Phase 3: Adversarial attack simulation
+│   ├── attack-vectors.ts
+│   ├── platform-spec.ts
+│   ├── prompts.ts
+│   ├── tools.ts
+│   └── index.ts
+├── judge/                   # Phase 4: Anti-hallucination verification
+│   ├── prompts.ts
+│   ├── tools.ts
+│   └── index.ts
+├── verdict/                 # Phase 5: Scoring and report rendering
+│   ├── scoring.ts
+│   └── report-renderer.ts
+├── config/                  # Configuration, cost tracking, rate limiting
+│   ├── index.ts
+│   ├── cost-tracker.ts
+│   ├── registry.ts
+│   └── rate-limiter.ts
+└── learning/                # Learning system (partially stubbed)
+    ├── index.ts
+    ├── outcome-recorder.ts
+    ├── knowledge-injector.ts
+    └── distillation.ts
 ```
 
-## Interface Contract
+## Reference Architecture
 
-```typescript
-// packages/pipeline/src/reviewer-agent/static/index.ts
-import { StaticAnalysisResult } from '../types'
+Study `/Users/tomerast/Downloads/Slate/ref/src` for patterns to adopt:
 
-export async function runStaticAnalysis(
-  files: Record<string, string>,   // filename → file content
-  manifest: Record<string, unknown>,
-): Promise<StaticAnalysisResult>
-```
+### What to learn from the reference:
+1. **Tool definitions** — Reference uses Zod schemas, `isConcurrencySafe`, `isReadOnly`, `isDestructive` classification, `searchHint` for discoverability. Our tools in `experts/tools.ts`, `red-team/tools.ts`, `judge/tools.ts` should adopt similar rigor.
+2. **Prompt architecture** — Reference layers prompts: static cached base + dynamic input-aware descriptions + tool-specific instructions. Our prompts in `experts/prompts.ts`, `red-team/prompts.ts`, `judge/prompts.ts` should be structured, not monolithic blobs.
+3. **Agent definitions** — Reference defines `whenToUse`, `tools` allowlist, `disallowedTools`, `maxTurns`, `criticalSystemReminder`. Our expert/red-team/judge agent configs should be equally explicit.
+4. **Error handling** — Reference validates at boundaries with Zod, wraps tool execution in try-catch with structured errors. Our tools lack input validation.
+5. **Orchestration** — Reference partitions tool calls into read-only (concurrent) vs write (serial) batches. Our orchestrator should be similarly thoughtful about concurrency.
 
-## Implementation: ast-parser.ts
+### What NOT to copy:
+- UI rendering (we have no terminal UI)
+- Permission system (not applicable)
+- MCP integration (not applicable)
+- React/ink components (not applicable)
 
-Use `@typescript-eslint/typescript-estree` to parse files and extract `FileStructure`:
+## Iteration Priorities
 
-```typescript
-import { parse } from '@typescript-eslint/typescript-estree'
-import type { FileStructure, ExportInfo, ImportInfo, FunctionInfo, BridgeCallInfo, DOMAccessInfo, DynamicExprInfo, CodeStructureMap } from '../types'
+Work through these in order of impact. Each iteration should tackle ONE focused improvement. Do not try to do everything at once.
 
-export function parseFileStructure(filename: string, content: string): FileStructure {
-  let ast: any
-  try {
-    ast = parse(content, { jsx: true, tolerant: true, range: true, loc: true })
-  } catch {
-    return { exports: [], imports: [], functions: [], classes: [], bridgeCalls: [], domAccess: [], dynamicExpressions: [] }
-  }
+### Priority 1: Dead Code & Stub Cleanup
+- [x] `learning/index.ts` — `loadKnowledgeBase()` returns empty KB with TODO comment. Either implement it properly (wire up DB queries for `reviewerStandards`, `reviewerPatterns`, `reviewerDimensionWeights` tables) or remove the pretense and make it explicitly a no-op with a clear comment about why
+- [x] `config/rate-limiter.ts` — Single-line re-export file. Inline the import where it's used or justify the indirection *(kept: tests import from this path; removing would break test structure for no behavioral gain)*
+- [x] Check all `index.ts` barrel files — remove any re-exports of things that don't exist or aren't used *(all barrel files verified clean)*
+- [x] Find and remove any unused imports, unused variables, dead branches *(no unused imports found)*
+- [x] Remove catch blocks that swallow errors silently (e.g., the `/* learning module not yet available */` catches in expert agents) — if the learning system isn't ready, don't pretend it might be
 
-  const structure: FileStructure = {
-    exports: [],
-    imports: [],
-    functions: [],
-    classes: [],
-    bridgeCalls: [],
-    domAccess: [],
-    dynamicExpressions: [],
-  }
+### Priority 2: Code Quality & Consistency
+- [ ] Tool definitions across `experts/tools.ts`, `red-team/tools.ts`, `judge/tools.ts` share ~70% code. Extract shared tool implementations into a common module, then compose phase-specific tool sets from it
+- [ ] Type definitions in `types.ts` (675 lines) — split into logical groups: `dimensions.ts`, `phases.ts`, `config.ts`, `results.ts`
+- [ ] Ensure consistent error handling: every tool should validate inputs and return structured errors, not throw raw exceptions
+- [ ] Standardize how agents are created — currently each expert/red-team/judge has slightly different setup. Create a shared `createReviewAgent(config)` factory
+- [ ] Remove magic numbers — extract constants for iteration limits, result caps (50 match limit in searchCode), confidence thresholds
 
-  // Walk AST to extract: ImportDeclaration, ExportNamedDeclaration, ExportDefaultDeclaration,
-  // FunctionDeclaration, ClassDeclaration, CallExpression (for bridge.* calls),
-  // MemberExpression (for window.*, document.*, globalThis.*),
-  // CallExpression (for eval(), new Function())
-  // ...
+### Priority 3: Prompt Engineering (HIGHEST IMPACT)
+This is where the real capability improvement lives. Study the reference prompts then rewrite ours.
 
-  return structure
-}
+- [ ] **Security expert prompt** (`experts/prompts.ts`) — Current prompt says "paranoid security expert" but doesn't give structured methodology. Rewrite to include:
+  - Explicit attack surface enumeration steps
+  - Severity classification criteria (what makes something critical vs warning vs info)
+  - Concrete examples of what each severity level looks like in component code
+  - Specific bridge API abuse patterns to check
+  - Output format that forces structured reasoning before scoring
+  
+- [ ] **Quality expert prompt** — Current prompt is vague about what "senior architect" means. Rewrite to include:
+  - SOLID principle checklist with component-specific examples
+  - Performance anti-patterns for React components (unnecessary re-renders, memory leaks, large bundles)
+  - Type safety evaluation criteria beyond just "are there types?"
+  - Architecture smell detection (god components, prop drilling, improper state management)
 
-export function buildCodeStructureMap(files: Record<string, string>): CodeStructureMap {
-  const fileStructures: Record<string, FileStructure> = {}
-  const dependencyGraph: Record<string, string[]> = {}
+- [ ] **Standards expert prompt** — Currently the weakest prompt. Rewrite to include:
+  - Concrete readability metrics (function length, nesting depth, naming conventions)
+  - Accessibility checklist (ARIA, keyboard nav, screen reader, color contrast)
+  - Manifest accuracy verification steps (does manifest.json match actual behavior?)
+  - Documentation completeness criteria
 
-  for (const [filename, content] of Object.entries(files)) {
-    const structure = parseFileStructure(filename, content)
-    fileStructures[filename] = structure
-    // Build dep graph from imports
-    dependencyGraph[filename] = structure.imports.map(i => i.source)
-  }
+- [ ] **Red-team prompt** (`red-team/prompts.ts`) — Good foundation but needs:
+  - Step-by-step exploitation methodology (recon → surface mapping → exploit attempt → verify)
+  - More concrete examples of each attack vector in the component context
+  - Clearer criteria for feasibility levels with examples
+  - Chain-of-thought reasoning requirement before claiming any finding
 
-  // Detect circular dependencies via DFS
-  const circularDependencies = detectCircularDeps(dependencyGraph)
+- [ ] **Judge prompt** (`judge/prompts.ts`) — Critical anti-hallucination role needs:
+  - Explicit verification methodology (how exactly to verify each finding type)
+  - Calibration examples (here's a hallucinated finding, here's a real one)
+  - Conflict resolution decision tree
+  - Severity recalibration guidelines with examples
 
-  // Find exports not imported anywhere
-  const unusedExports = findUnusedExports(fileStructures)
+- [ ] **All prompts** — Apply these patterns from the reference:
+  - Separate static instruction sections from dynamic context injection
+  - Use structured sections with clear headers
+  - Include few-shot examples where possible
+  - Add "critical rules" sections for absolute constraints
+  - Define output schemas inline with field-by-field explanations
 
-  return { files: fileStructures, dependencyGraph, unusedExports, circularDependencies }
-}
-```
+### Priority 4: Agent Capability Improvements
+- [ ] Add a `analyzeComponent` tool that gives agents a high-level summary of what the component does (renders, state, effects, event handlers) so they don't waste iterations understanding basics
+- [ ] Add a `compareToManifest` tool that automatically diffs manifest claims against actual code behavior
+- [ ] Improve `searchCode` tool — add support for AST-aware searches (find all function calls to X, find all state mutations, find all effect dependencies)
+- [ ] Add `getComponentContext` tool that extracts React-specific info: hooks used, props interface, render tree structure, event handlers
+- [ ] Consider adding a `runInSandbox` tool concept for the red-team to actually test exploit attempts (even if simulated)
 
-## Implementation: pattern-matcher.ts
+### Priority 5: Orchestration Improvements  
+- [ ] Add timeout handling per phase — if an expert takes too long, gracefully degrade
+- [ ] Improve short-circuit logic — current logic is binary (critical = skip). Add nuance: security criticals skip to verdict, but quality criticals still benefit from judge verification
+- [ ] Add retry logic for transient LLM failures (rate limits, timeouts)
+- [ ] Improve progress callbacks — report which specific agent is running, what phase, estimated completion
+- [ ] Consider streaming partial results — don't wait for all experts to finish before showing early findings
 
-```typescript
-import type { StaticFinding } from '../types'
+### Priority 6: Scoring & Verdict
+- [ ] Current weighted scoring (security=3x, quality=2x, standards=1x) is arbitrary. Add configuration and justification
+- [ ] Verdict thresholds should be configurable per-deployment, not hardcoded
+- [ ] Report renderer should include actionable fix suggestions, not just findings
+- [ ] Add confidence intervals to scores, not just point estimates
+- [ ] Consider a "suggestions" tier below "warnings" for style/preference items
 
-interface PatternDef {
-  pattern: RegExp
-  message: string
-  dimension: number
-  severity: 'critical' | 'warning' | 'info'
-  analyzer: string
-}
+## Rules
 
-const CRITICAL_PATTERNS: PatternDef[] = [
-  { pattern: /\beval\s*\(/,                    message: 'eval() — dynamic code execution', dimension: 2, severity: 'critical', analyzer: 'pattern-matcher' },
-  { pattern: /new\s+Function\s*\(/,             message: 'Function constructor — dynamic code execution', dimension: 2, severity: 'critical', analyzer: 'pattern-matcher' },
-  { pattern: /\.__proto__/,                     message: 'Prototype pollution via __proto__', dimension: 2, severity: 'critical', analyzer: 'pattern-matcher' },
-  { pattern: /constructor\.prototype/,          message: 'Prototype pollution via constructor.prototype', dimension: 2, severity: 'critical', analyzer: 'pattern-matcher' },
-  { pattern: /dangerouslySetInnerHTML/,          message: 'XSS risk: dangerouslySetInnerHTML', dimension: 2, severity: 'critical', analyzer: 'pattern-matcher' },
-  { pattern: /window\.require\s*\(/,            message: 'window.require — Node.js access attempt', dimension: 2, severity: 'critical', analyzer: 'pattern-matcher' },
-  { pattern: /\bprocess\.env\b/,               message: 'process.env access — blocked in sandbox', dimension: 3, severity: 'critical', analyzer: 'pattern-matcher' },
-  { pattern: /(?:password|secret|api[_-]?key|token|auth)\s*[=:]\s*["'][^"']{8,}["']/i, message: 'Hardcoded credential', dimension: 3, severity: 'critical', analyzer: 'pattern-matcher' },
-  { pattern: /AKIA[0-9A-Z]{16}/,               message: 'AWS Access Key', dimension: 3, severity: 'critical', analyzer: 'pattern-matcher' },
-  { pattern: /sk-[a-zA-Z0-9]{32,}/,            message: 'API Key (sk- prefix)', dimension: 3, severity: 'critical', analyzer: 'pattern-matcher' },
-  { pattern: /ghp_[a-zA-Z0-9]{36}/,            message: 'GitHub Personal Access Token', dimension: 3, severity: 'critical', analyzer: 'pattern-matcher' },
-  { pattern: /-----BEGIN.*PRIVATE KEY-----/,    message: 'Private key in source', dimension: 3, severity: 'critical', analyzer: 'pattern-matcher' },
-  { pattern: /\batob\s*\(|btoa\s*\(/,          message: 'Base64 encoding — potential obfuscation', dimension: 1, severity: 'critical', analyzer: 'pattern-matcher' },
-]
+1. **One focused change per iteration.** Don't try to do multiple priorities in one pass.
+2. **Verify compilation** after every change: `cd /Users/tomerast/Projects/CSlate-server && npx tsc --noEmit -p packages/pipeline/tsconfig.json`
+3. **Run tests** if they exist for the files you changed: `npx vitest run --reporter=verbose packages/pipeline/src/reviewer-agent/`
+4. **Commit each iteration** with a descriptive message: `git add -A && git commit -m "refactor(reviewer): <what you did>"`
+5. **Read before writing.** Always read a file before modifying it. Understand existing code fully.
+6. **Preserve behavior.** Dead code removal and cleanup should not change the pipeline's observable behavior. Prompt improvements should only improve quality, not break the output schema.
+7. **Reference the Slate source.** When improving prompts or tool patterns, read relevant files from `/Users/tomerast/Downloads/Slate/ref/src` first to understand the pattern, then adapt (don't copy) for our context.
+8. **Update this file.** After completing an item, check off the checkbox `[x]` so the next iteration knows what's done.
+9. **Track progress.** At the top of each iteration, add a brief log entry to the Progress Log section below.
 
-const WARNING_PATTERNS: PatternDef[] = [
-  { pattern: /console\.(log|debug|info)\s*\(/, message: 'Console output in component', dimension: 8, severity: 'warning', analyzer: 'pattern-matcher' },
-  { pattern: /\/\/\s*(TODO|FIXME|HACK|XXX)/,   message: 'Unresolved TODO/FIXME comment', dimension: 8, severity: 'warning', analyzer: 'pattern-matcher' },
-  { pattern: /localStorage\.|sessionStorage\./, message: 'Storage API — blocked in sandbox', dimension: 2, severity: 'warning', analyzer: 'pattern-matcher' },
-  { pattern: /document\.cookie/,               message: 'Cookie access — blocked in sandbox', dimension: 2, severity: 'warning', analyzer: 'pattern-matcher' },
-  { pattern: /\bfetch\s*\(/,                   message: 'Direct fetch() — use bridge.fetch() instead', dimension: 2, severity: 'warning', analyzer: 'pattern-matcher' },
-  { pattern: /new\s+WebSocket\s*\(/,           message: 'WebSocket — use bridge.subscribe() instead', dimension: 2, severity: 'warning', analyzer: 'pattern-matcher' },
-]
+## Progress Log
 
-export function runPatternMatching(files: Record<string, string>): {
-  criticalFindings: StaticFinding[]
-  warnings: StaticFinding[]
-} {
-  const criticalFindings: StaticFinding[] = []
-  const warnings: StaticFinding[] = []
-
-  for (const [filename, content] of Object.entries(files)) {
-    const lines = content.split('\n')
-    lines.forEach((line, idx) => {
-      const lineNumber = idx + 1
-      // Skip comment lines for some patterns
-      const isComment = line.trim().startsWith('//')
-
-      for (const def of CRITICAL_PATTERNS) {
-        if (isComment && def.dimension !== 3) continue  // Still check credentials in comments
-        if (def.pattern.test(line)) {
-          criticalFindings.push({
-            analyzer: def.analyzer,
-            dimension: def.dimension,
-            severity: def.severity,
-            file: filename,
-            line: lineNumber,
-            pattern: def.pattern.toString(),
-            message: def.message,
-            evidence: line.trim(),
-          })
-        }
-      }
-
-      for (const def of WARNING_PATTERNS) {
-        if (def.pattern.test(line)) {
-          warnings.push({
-            analyzer: def.analyzer,
-            dimension: def.dimension,
-            severity: def.severity,
-            file: filename,
-            line: lineNumber,
-            pattern: def.pattern.toString(),
-            message: def.message,
-            evidence: line.trim(),
-          })
-        }
-      }
-    })
-  }
-
-  return { criticalFindings, warnings }
-}
-```
-
-## Implementation: type-checker.ts
-
-```typescript
-import ts from 'typescript'
-import type { TypeCheckResult, TypeCheckError } from '../types'
-
-export function runTypeCheck(files: Record<string, string>): TypeCheckResult {
-  // Create in-memory source files
-  const sourceFiles = new Map<string, string>()
-  for (const [filename, content] of Object.entries(files)) {
-    if (filename.endsWith('.ts') || filename.endsWith('.tsx')) {
-      sourceFiles.set('/' + filename, content)
-    }
-  }
-
-  // Add bridge type stub so bridge.fetch etc. don't cause "not defined" errors
-  sourceFiles.set('/bridge.d.ts', `
-    declare const bridge: {
-      fetch(sourceId: string, params?: Record<string, unknown>): Promise<unknown>
-      subscribe(sourceId: string, callback: (data: unknown) => void): () => void
-      getConfig(key: string): string | undefined
-    }
-  `)
-
-  const host = ts.createCompilerHost({})
-  const origGetSourceFile = host.getSourceFile.bind(host)
-  host.getSourceFile = (fileName, languageVersion) => {
-    const content = sourceFiles.get(fileName)
-    if (content !== undefined) {
-      return ts.createSourceFile(fileName, content, languageVersion, true)
-    }
-    return origGetSourceFile(fileName, languageVersion)
-  }
-  host.fileExists = (f) => sourceFiles.has(f) || ts.sys.fileExists(f)
-
-  const program = ts.createProgram(
-    [...sourceFiles.keys()].filter(f => !f.endsWith('.d.ts')),
-    { strict: true, jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2020, moduleResolution: ts.ModuleResolutionKind.Bundler, noEmit: true },
-    host,
-  )
-
-  const allDiagnostics = ts.getPreEmitDiagnostics(program)
-  const errors: TypeCheckError[] = []
-
-  allDiagnostics.forEach(diagnostic => {
-    if (diagnostic.file && diagnostic.start !== undefined) {
-      const { line, character } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
-      errors.push({
-        file: diagnostic.file.fileName.replace('/', ''),
-        line: line + 1,
-        column: character + 1,
-        code: `TS${diagnostic.code}`,
-        message: ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
-      })
-    }
-  })
-
-  return { success: errors.length === 0, errors }
-}
-```
-
-## Implementation: index.ts
-
-```typescript
-export async function runStaticAnalysis(
-  files: Record<string, string>,
-  manifest: Record<string, unknown>,
-): Promise<StaticAnalysisResult> {
-  const startTime = Date.now()
-
-  const [codeStructure, { criticalFindings, warnings }, typeCheckResult] = await Promise.all([
-    Promise.resolve(buildCodeStructureMap(files)),
-    Promise.resolve(runPatternMatching(files)),
-    Promise.resolve(runTypeCheck(files)),
-  ])
-
-  // Promote certain TypeScript errors to critical findings
-  for (const error of typeCheckResult.errors) {
-    if (['TS2345', 'TS2322', 'TS2551'].includes(error.code)) {
-      criticalFindings.push({
-        analyzer: 'typescript',
-        dimension: 6,
-        severity: 'critical',
-        file: error.file,
-        line: error.line,
-        pattern: error.code,
-        message: error.message,
-        evidence: `TypeScript error ${error.code} at ${error.file}:${error.line}:${error.column}`,
-      })
-    }
-  }
-
-  return { criticalFindings, warnings, codeStructure, typeCheckResult, duration: Date.now() - startTime }
-}
-```
-
-## TDD Approach
-
-1. **pattern-matcher.test.ts**: 
-   - Test each critical pattern with matching code → verify finding produced
-   - Test non-matching code → verify no finding
-   - Test bridge.fetch() is NOT flagged as direct fetch
-
-2. **ast-parser.test.ts**:
-   - Test with `export function foo() {}` → exports contains foo
-   - Test with `bridge.fetch('sourceId')` → bridgeCalls contains it with isDynamic: false
-   - Test with `bridge.fetch(dynamicVar)` → bridgeCalls contains it with isDynamic: true
-
-3. **type-checker.test.ts**:
-   - Test with valid TypeScript → success: true, errors: []
-   - Test with `const x: string = 42` → error TS2322 detected
-
-4. **index.test.ts**:
-   - Integration: run against mock component with eval() → criticalFindings.length > 0
-   - Performance: 5 typical files complete in < 5 seconds
-
-Test command: `npx vitest run packages/pipeline/src/reviewer-agent/static/__tests__/ --reporter verbose`
+<!-- Each iteration adds a line here: "Iteration N: <what was done>" -->
+Iteration 1: Priority 1 — Wired up `loadKnowledgeBase()` to query real DB tables (reviewerStandards, reviewerPatterns, reviewerDimensionWeights), removed error-swallowing try/catch in all 3 expert agents replacing with direct imports of `injectKnowledge`, verified all barrel files and imports are clean. All 247 tests pass.
 
 ## When You're Done
 
-`runStaticAnalysis` returns complete `StaticAnalysisResult`, critical patterns detected, TypeScript errors surfaced, tests pass.
+When all priority items are checked off or you've made significant progress across all priorities, output:
 
-<promise>STATIC ANALYSIS COMPLETE</promise>
+<promise>REVIEWER AGENT OVERHAULED</promise>

@@ -3,6 +3,7 @@ import type { AgentRegistry } from '@cslate/shared/agent'
 import type { ExpertAgentResult, StaticAnalysisResult, ReviewerKnowledgeBase, ReviewerConfig } from '../types'
 import { buildExpertTools } from './tools'
 import { STANDARDS_EXPERT_SYSTEM_PROMPT } from './prompts'
+import { injectKnowledge } from '../learning/knowledge-injector'
 
 export async function runStandardsExpert(
   files: Record<string, string>,
@@ -15,11 +16,7 @@ export async function runStandardsExpert(
   const tools = buildExpertTools(files, manifest, staticResult)
   const modelId = config.modelOverrides?.standardsExpert ?? 'anthropic:claude-haiku-4-5-20251001'
 
-  let systemPrompt = STANDARDS_EXPERT_SYSTEM_PROMPT
-  try {
-    const { injectKnowledge } = await import('../learning/knowledge-injector')
-    systemPrompt = injectKnowledge(systemPrompt, knowledgeBase, [8, 9, 10])
-  } catch { /* learning module not yet available */ }
+  const systemPrompt = injectKnowledge(STANDARDS_EXPERT_SYSTEM_PROMPT, knowledgeBase, [8, 9, 10])
 
   const fileList = Object.keys(files).join(', ')
   const staticSummary = `Static analysis found: ${staticResult.criticalFindings.length} critical, ${staticResult.warnings.length} warnings`
