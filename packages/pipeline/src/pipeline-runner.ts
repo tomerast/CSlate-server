@@ -1,8 +1,6 @@
 import type { PipelineReviewContext, StageResult } from './pipeline-types'
 import { validatePipelineManifest } from './pipeline-stages/1-manifest-validation'
-import { scanPipelineSecurity } from './pipeline-stages/2-security-scan'
 import { checkPipelineDependencies } from './pipeline-stages/3-dependency-check'
-import { reviewPipelineQuality } from './pipeline-stages/4-quality-review'
 import { catalogPipeline } from './pipeline-stages/5-cataloging'
 import { embedAndStorePipeline } from './pipeline-stages/6-embedding'
 import { agentReview } from './reviewer-agent'
