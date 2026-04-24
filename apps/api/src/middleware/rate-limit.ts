@@ -2,6 +2,7 @@ import { createMiddleware } from 'hono/factory'
 import { HTTPException } from 'hono/http-exception'
 import { getPool } from '@cslate/db'
 import type { User } from '@cslate/db'
+import { createHash } from 'crypto'
 
 interface RateLimitConfig {
   group: string
@@ -25,7 +26,10 @@ export function rateLimitMiddleware(configKey: keyof typeof CONFIGS) {
 
   return createMiddleware<{ Variables: { user: User } }>(async (c, next) => {
     const user = c.get('user')
-    if (!user) return next()
+    const subjectId = user?.id ?? anonymousSubjectId(c.req.header('cf-connecting-ip')
+      ?? c.req.header('x-real-ip')
+      ?? c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+      ?? 'unknown')
 
     const pool = getPool()
     const windowStart = new Date(
@@ -38,7 +42,7 @@ export function rateLimitMiddleware(configKey: keyof typeof CONFIGS) {
        ON CONFLICT (user_id, endpoint_group, window_start)
        DO UPDATE SET count = rate_limits.count + 1
        RETURNING count`,
-      [user.id, config.group, windowStart]
+      [subjectId, config.group, windowStart]
     )
 
     const count = result.rows[0]?.count ?? 1
@@ -56,4 +60,15 @@ export function rateLimitMiddleware(configKey: keyof typeof CONFIGS) {
 
     await next()
   })
+}
+
+function anonymousSubjectId(subject: string): string {
+  const hex = createHash('sha256').update(`anonymous:${subject}`).digest('hex').slice(0, 32)
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    `4${hex.slice(13, 16)}`,
+    `${((parseInt(hex.slice(16, 18), 16) & 0x3f) | 0x80).toString(16).padStart(2, '0')}${hex.slice(18, 20)}`,
+    hex.slice(20, 32),
+  ].join('-')
 }

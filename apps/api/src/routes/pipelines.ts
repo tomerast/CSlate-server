@@ -3,16 +3,12 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { HTTPException } from 'hono/http-exception'
 import {
-  getDb,
   getPool,
   getPipelineById,
   getPopularPipelines,
   searchPipelines,
   updatePipeline,
-  pipelineUploads,
 } from '@cslate/db'
-import { pipelines, ratings, reports } from '@cslate/db'
-import { eq, and } from 'drizzle-orm'
 import { getEmbedding } from '@cslate/llm'
 import { getPipelineFiles } from '@cslate/storage'
 import { authMiddleware } from '../middleware/auth'
@@ -150,43 +146,7 @@ pipelineRoutes.post(
     comment: z.string().max(500).optional(),
   })),
   async (c) => {
-    const id = c.req.param('id')
-    const user = c.get('user')
-    const { rating, comment } = c.req.valid('json')
-    const db = getDb()
-    const pool = getPool()
-
-    const pipeline = await getPipelineById(id)
-    if (!pipeline || pipeline.revoked) throw new HTTPException(404, { message: 'NOT_FOUND' })
-
-    const existing = await db.query.ratings.findFirst({
-      where: and(eq(ratings.componentId, id), eq(ratings.userId, user.id)),
-    })
-
-    if (existing) {
-      const delta = rating - existing.rating
-      await db.update(ratings).set({ rating, comment, updatedAt: new Date() })
-        .where(and(eq(ratings.componentId, id), eq(ratings.userId, user.id)))
-      if (delta !== 0) {
-        await pool.query(
-          `UPDATE pipelines SET rating_sum = rating_sum + $1 WHERE id = $2`,
-          [delta, id]
-        )
-      }
-    } else {
-      await db.insert(ratings).values({ componentId: id, userId: user.id, rating, comment })
-      await pool.query(
-        `UPDATE pipelines SET rating_sum = rating_sum + $1, rating_count = rating_count + 1 WHERE id = $2`,
-        [rating, id]
-      )
-    }
-
-    const updated = await getPipelineById(id)
-    const avgRating = updated && updated.ratingCount > 0
-      ? updated.ratingSum / updated.ratingCount
-      : 0
-
-    return c.json({ rating: avgRating, ratingCount: updated?.ratingCount ?? 0 })
+    throw new HTTPException(501, { message: 'PIPELINE_RATINGS_NOT_IMPLEMENTED' })
   }
 )
 
@@ -200,35 +160,7 @@ pipelineRoutes.post(
     description: z.string().max(1000).optional(),
   })),
   async (c) => {
-    const id = c.req.param('id')
-    const user = c.get('user')
-    const { reason, description } = c.req.valid('json')
-    const db = getDb()
-    const pool = getPool()
-
-    const pipeline = await getPipelineById(id)
-    if (!pipeline) throw new HTTPException(404, { message: 'NOT_FOUND' })
-
-    const existing = await db.query.reports.findFirst({
-      where: and(eq(reports.componentId, id), eq(reports.reporterId, user.id)),
-    })
-    if (existing) throw new HTTPException(409, { message: 'DUPLICATE_REPORT' })
-
-    const [report] = await db.insert(reports).values({
-      componentId: id,
-      reporterId: user.id,
-      reason,
-      description,
-    }).returning({ id: reports.id })
-
-    // Auto-flag if 3+ reports
-    await pool.query(
-      `UPDATE pipelines SET flagged = true
-       WHERE id = $1 AND (SELECT COUNT(*) FROM reports WHERE component_id = $1) >= 3`,
-      [id]
-    )
-
-    return c.json({ reportId: report?.id }, 201)
+    throw new HTTPException(501, { message: 'PIPELINE_REPORTS_NOT_IMPLEMENTED' })
   }
 )
 
