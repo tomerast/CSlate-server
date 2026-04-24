@@ -19,7 +19,7 @@ export async function runQualityExpert(
     agentName: 'quality-expert',
     systemPrompt: QUALITY_EXPERT_SYSTEM_PROMPT,
     tools: buildExpertTools(files, manifest, staticResult),
-    modelId: config.modelOverrides?.qualityExpert ?? 'anthropic:claude-sonnet-4-6',
+    modelId: config.modelOverrides?.qualityExpert ?? 'openai:moonshotai/kimi-k2.6',
     maxSteps: config.maxExpertAgentIterations ?? 12,
     knowledgeDimensions: [4, 5, 6, 7],
     knowledgeBase,

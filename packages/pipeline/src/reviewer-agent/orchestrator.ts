@@ -137,7 +137,7 @@ export async function agentReview(
 
   // Track cost for each expert
   for (const expert of expertResults) {
-    const model = config.modelOverrides[expert.agent as keyof typeof config.modelOverrides] ?? 'claude-sonnet-4-6'
+    const model = config.modelOverrides[expert.agent as keyof typeof config.modelOverrides] ?? 'openai:moonshotai/kimi-k2.6'
     await trackCost(expert.agent, model, expert.tokenCost)
   }
 
@@ -185,7 +185,7 @@ export async function agentReview(
       exploitAttempts: redTeamResult.exploitAttempts.length,
     }, 'phase done')
     await onProgress?.({ phase: 'red_team', status: 'complete', detail: `Threat level: ${redTeamResult.overallThreatLevel}, ${redTeamResult.exploitAttempts.length} exploit attempts in ${phaseDurations.redTeam}ms` })
-    await trackCost('red_team', config.modelOverrides.redTeam ?? 'claude-sonnet-4-6', redTeamResult.tokenCost)
+    await trackCost('red_team', config.modelOverrides.redTeam ?? 'openai:moonshotai/kimi-k2.6', redTeamResult.tokenCost)
   }
 
   // ─── Phase 4: Judge — always runs to verify findings aren't hallucinated ──
@@ -208,7 +208,7 @@ export async function agentReview(
     hallucinated: judgeResult.stats.hallucinated,
   }, 'phase done')
   await onProgress?.({ phase: 'judge', status: 'complete', detail: `${judgeResult.verifiedFindings.length} verified, ${judgeResult.rejectedFindings.length} rejected (${judgeResult.stats.hallucinated} hallucinated) in ${phaseDurations.judge}ms` })
-  await trackCost('judge', config.modelOverrides.judge ?? 'claude-sonnet-4-6', judgeResult.tokenCost)
+  await trackCost('judge', config.modelOverrides.judge ?? 'openai:moonshotai/kimi-k2.6', judgeResult.tokenCost)
 
   // ─── Phase 5: Verdict ──────────────────────────────────────────────────
   await onProgress?.({ phase: 'verdict', status: 'in_progress', detail: 'Computing scores and rendering report' })

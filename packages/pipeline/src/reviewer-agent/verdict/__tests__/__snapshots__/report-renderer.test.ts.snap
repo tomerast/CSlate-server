@@ -1,0 +1,75 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderReport > approved report matches snapshot 1`] = `
+"# Review Report: MyWidget v2.0.0
+
+## Verdict: ✅ APPROVED
+**Reason:** All dimensions passed review
+**Confidence:** 92% (70-100)
+**Duration:** 12500ms
+**Cost:** $0.0450
+
+## Scorecard
+| # | Dimension | Verdict | Confidence | Critical | Warnings |
+|---|-----------|---------|------------|----------|----------|
+| 1 | Malicious Intent Detection | PASS | 95% (70-100) | 0 | 0 |
+| 4 | Architecture & SOLID | WARNING | 75% (70-100) | 0 | 1 |
+
+## Critical Findings
+_None_
+
+## Warnings
+- [Dim 2] **Missing useEffect cleanup** in \`ui.tsx:55\` — _Fix: Remove injection vectors. Avoid dynamic code execution and validate all inputs._
+
+## Threat Assessment
+- **Overall Threat Level:** LOW
+- **Sandbox Escape Risk:** 5/100
+- **Data Exfiltration Risk:** 10/100
+- **Supply Chain Risk:** 2/100
+- **Prompt Injection Risk:** 15/100
+
+## Review Stats
+- **Hallucination Rate:** 40.0%
+- **Findings:** 5 total → 3 verified, 2 rejected
+- **Phase Durations:** Static 500ms | Experts 8000ms | Red-team 3000ms | Judge 800ms
+"
+`;
+
+exports[`renderReport > rejected report matches snapshot 1`] = `
+"# Review Report: DangerWidget v0.1.0
+
+## Verdict: ❌ REJECTED
+**Reason:** Critical findings remain after judge review
+**Confidence:** 25% (0-50)
+**Duration:** 12500ms
+**Cost:** $0.0450
+
+## Scorecard
+| # | Dimension | Verdict | Confidence | Critical | Warnings |
+|---|-----------|---------|------------|----------|----------|
+| 2 | Injection & Sandbox Escape | FAIL | 95% (70-100) | 1 | 0 |
+
+## Critical Findings
+### XSS via dangerouslySetInnerHTML
+- **Dimension:** Injection & Sandbox Escape
+- **File:** ui.tsx:42
+- **Evidence:** dangerouslySetInnerHTML={{ __html: userInput }}
+- **Reasoning:** User data flows directly to HTML
+- **Fix:** Replace dangerouslySetInnerHTML with safe rendering. Use DOMPurify or render as text.
+
+## Warnings
+_None_
+
+## Threat Assessment
+- **Overall Threat Level:** HIGH
+- **Sandbox Escape Risk:** 75/100
+- **Data Exfiltration Risk:** 10/100
+- **Supply Chain Risk:** 2/100
+- **Prompt Injection Risk:** 15/100
+
+## Review Stats
+- **Hallucination Rate:** 40.0%
+- **Findings:** 5 total → 3 verified, 2 rejected
+- **Phase Durations:** Static 500ms | Experts 8000ms | Red-team 3000ms | Judge 800ms
+"
+`;

@@ -19,7 +19,7 @@ export async function runSecurityExpert(
     agentName: 'security-expert',
     systemPrompt: SECURITY_EXPERT_SYSTEM_PROMPT,
     tools: buildExpertTools(files, manifest, staticResult),
-    modelId: config.modelOverrides?.securityExpert ?? 'anthropic:claude-sonnet-4-6',
+    modelId: config.modelOverrides?.securityExpert ?? 'openai:moonshotai/kimi-k2.6',
     maxSteps: config.maxExpertAgentIterations ?? 12,
     knowledgeDimensions: [1, 2, 3],
     knowledgeBase,

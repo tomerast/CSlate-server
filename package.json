@@ -18,7 +18,8 @@
     "db:generate": "pnpm --filter=@cslate/db db:generate",
     "db:migrate": "pnpm --filter=@cslate/db db:migrate",
     "db:seed": "tsx scripts/seed-dev.ts",
-    "db:studio": "pnpm --filter=@cslate/db db:studio"
+    "db:studio": "pnpm --filter=@cslate/db db:studio",
+    "monitor": "tsx scripts/monitor.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

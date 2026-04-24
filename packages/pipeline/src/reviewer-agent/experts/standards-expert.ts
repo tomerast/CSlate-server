@@ -19,7 +19,7 @@ export async function runStandardsExpert(
     agentName: 'standards-expert',
     systemPrompt: STANDARDS_EXPERT_SYSTEM_PROMPT,
     tools: buildExpertTools(files, manifest, staticResult),
-    modelId: config.modelOverrides?.standardsExpert ?? 'anthropic:claude-haiku-4-5-20251001',
+    modelId: config.modelOverrides?.standardsExpert ?? 'openai:moonshotai/kimi-k2.6',
     maxSteps: config.maxExpertAgentIterations ?? 12,
     knowledgeDimensions: [8, 9, 10],
     knowledgeBase,

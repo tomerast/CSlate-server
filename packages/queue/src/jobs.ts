@@ -23,6 +23,7 @@ export const JOB_NAMES = {
 
 export async function enqueueReviewJob(data: ReviewJobData): Promise<string | null> {
   const boss = await getBoss()
+  await boss.createQueue(JOB_NAMES.REVIEW_COMPONENT)
   return boss.send(JOB_NAMES.REVIEW_COMPONENT, data)
 }
 

@@ -143,7 +143,7 @@ describe('runRedTeam', () => {
     )
   })
 
-  it('falls back to claude-sonnet-4-6 when no modelOverride', async () => {
+  it('falls back to moonshotai/kimi-k2.6 when no modelOverride', async () => {
     const { runSubAgent } = await import('@cslate/shared/agent')
     vi.mocked(runSubAgent).mockResolvedValueOnce({
       text: JSON.stringify(fixtureRedTeamResult),
@@ -155,7 +155,7 @@ describe('runRedTeam', () => {
     await runRedTeam(mockFiles, mockManifest, mockStaticResult, mockExpertResults, mockConfig)
 
     expect(runSubAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ modelId: 'anthropic:claude-sonnet-4-6' }),
+      expect.objectContaining({ modelId: 'openai:moonshotai/kimi-k2.6' }),
     )
   })
 })

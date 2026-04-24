@@ -17,6 +17,10 @@ export async function reviewHandler(job: Job<ReviewJobData>): Promise<void> {
     log.error({ uploadId }, 'Upload not found')
     return
   }
+  if (upload.status === 'approved' || upload.status === 'rejected') {
+    log.info({ uploadId, status: upload.status }, 'Upload already terminal — skipping review job')
+    return
+  }
 
   // Mark as in_progress
   await updateUpload(uploadId, { status: 'in_progress' })
@@ -40,19 +44,37 @@ export async function reviewHandler(job: Job<ReviewJobData>): Promise<void> {
     previousResults: completedStages,
   }
 
+  let activeStage = upload.currentStage
   try {
     const result = await runPipeline(ctx, async (progress) => {
+      activeStage = progress.stage
       // Update upload record
       await updateUpload(uploadId, {
         currentStage: progress.stage,
         completedStages: progress.completedStages ?? completedStages,
       })
 
-      // Notify SSE listeners via pg_notify
+      // Notify SSE listeners via pg_notify — payload must stay under PG's 8000-byte NOTIFY limit
       const pool = getPool()
+      const notifyPayload = JSON.stringify({
+        stage: progress.stage,
+        status: progress.status,
+        completedStages: (progress.completedStages ?? completedStages).map((s: StageResult) => ({
+          stage: s.stage,
+          status: s.status,
+          duration: s.duration,
+          issueCount: s.issues?.length ?? 0,
+        })),
+      })
+      const safePayload = notifyPayload.length > 7900 ? JSON.stringify({
+        stage: progress.stage,
+        status: progress.status,
+        stageCount: (progress.completedStages ?? completedStages).length,
+        truncated: true,
+      }) : notifyPayload
       await pool.query(
         `SELECT pg_notify($1, $2)`,
-        [`upload:${uploadId}`, JSON.stringify(progress)]
+        [`upload:${uploadId}`, safePayload]
       )
     })
 
@@ -82,14 +104,25 @@ export async function reviewHandler(job: Job<ReviewJobData>): Promise<void> {
   } catch (err) {
     const totalDurationMs = Date.now() - jobStart
     log.error({ uploadId, totalDurationMs, err }, 'pipeline threw unexpected error')
-    await updateUpload(uploadId, { status: 'rejected' })
+    const message = err instanceof Error ? err.message : String(err)
+    const rejectionReasons = [{
+      stage: activeStage ?? ctx.previousResults.at(-1)?.stage ?? 'pipeline',
+      issues: [{
+        severity: 'critical' as const,
+        message: `Review pipeline error: ${message}`,
+      }],
+    }]
+
+    await updateUpload(uploadId, {
+      status: 'rejected',
+      completedStages: ctx.previousResults,
+      rejectionReasons,
+    })
 
     const pool = getPool()
     await pool.query(
       `SELECT pg_notify($1, $2)`,
-      [`upload:${uploadId}`, JSON.stringify({ status: 'rejected', error: String(err) })]
+      [`upload:${uploadId}`, JSON.stringify({ status: 'rejected', rejectionReasons })]
     )
-
-    throw err // Let pg-boss retry
   }
 }

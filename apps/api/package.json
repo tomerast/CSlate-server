@@ -6,7 +6,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsup src/index.ts --format cjs",
     "start": "node dist/index.js",
-    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
     "test:watch": "vitest"
   },
   "dependencies": {

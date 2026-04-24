@@ -27,7 +27,7 @@ export async function runJudge(
     agentName: 'judge',
     systemPrompt: JUDGE_SYSTEM_PROMPT,
     tools: buildJudgeTools(files, allFindings),
-    modelId: config?.modelOverrides?.judge ?? 'anthropic:claude-sonnet-4-6',
+    modelId: config?.modelOverrides?.judge ?? 'openai:moonshotai/kimi-k2.6',
     maxSteps: config?.maxJudgeIterations ?? 12,
     buildPrompt: () => [
       `You are reviewing findings from ${expertResults.length} expert agents.`,

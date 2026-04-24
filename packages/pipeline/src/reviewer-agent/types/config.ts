@@ -35,7 +35,7 @@ export const DEFAULT_REVIEWER_CONFIG: ReviewerConfig = {
   maxLLMCostPerDay: 50,
   maxExpertAgentIterations: 12,
   maxRedTeamIterations: 10,
-  maxJudgeIterations: 12,
+  maxJudgeIterations: 20,
   qualityThreshold: 70,
   maxWarnings: 5,
   tierWeights: { security: 3, quality: 2, standards: 1 },

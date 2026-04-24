@@ -5,16 +5,9 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1743120000000,
-      "tag": "0000_initial",
-      "breakpoints": false
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1743206400000,
-      "tag": "0001_add_pipelines",
-      "breakpoints": false
+      "when": 1777066225153,
+      "tag": "0000_yielding_richard_fisk",
+      "breakpoints": true
     }
   ]
 }

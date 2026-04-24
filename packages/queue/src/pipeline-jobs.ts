@@ -8,5 +8,6 @@ export interface PipelineReviewJobData {
 
 export async function enqueuePipelineReviewJob(data: PipelineReviewJobData): Promise<string | null> {
   const boss = await getBoss()
+  await boss.createQueue(PIPELINE_REVIEW_JOB)
   return boss.send(PIPELINE_REVIEW_JOB, data)
 }

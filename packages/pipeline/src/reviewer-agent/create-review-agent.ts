@@ -37,9 +37,23 @@ export async function runReviewAgent<TResult>(
     maxOutputTokens: MAX_OUTPUT_TOKENS,
   })
 
-  const parsed = JSON.parse(stripFences(result.text)) as TResult & {
-    tokenCost?: { input: number; output: number }
-    iterationsUsed?: number
+  const stripped = stripFences(result.text || '')
+  if (!stripped) {
+    throw new Error(
+      `LLM returned empty text after ${result.steps} steps. ` +
+      `This usually means the model hit the step/token limit before producing a final answer. ` +
+      `Usage: ${result.usage.inputTokens}/${result.usage.outputTokens} tokens.`
+    )
+  }
+  let parsed: TResult & { tokenCost?: { input: number; output: number }; iterationsUsed?: number }
+  try {
+    parsed = JSON.parse(stripped)
+  } catch (parseErr) {
+    throw new Error(
+      `LLM response is not valid JSON after ${result.steps} steps. ` +
+      `Response text (first 500 chars): "${stripped.slice(0, 500)}" ` +
+      `Usage: ${result.usage.inputTokens}/${result.usage.outputTokens} tokens.`
+    )
   }
   parsed.tokenCost = { input: result.usage.inputTokens, output: result.usage.outputTokens }
   parsed.iterationsUsed = result.steps

@@ -24,7 +24,7 @@ export async function runRedTeam(
     agentName: 'red-team',
     systemPrompt: RED_TEAM_SYSTEM_PROMPT,
     tools: buildRedTeamTools(files, manifest, staticResult, expertResults),
-    modelId: config.modelOverrides?.redTeam ?? 'anthropic:claude-sonnet-4-6',
+    modelId: config.modelOverrides?.redTeam ?? 'openai:moonshotai/kimi-k2.6',
     maxSteps: config.maxRedTeamIterations ?? 10,
     buildPrompt: () => `Perform adversarial red-team analysis of this component.\n\n${summary}\n\nStart with listFiles(), then readFile each source file, then probe with searchCode and getBridgeAPISpec.`,
     parseResult: result => result,

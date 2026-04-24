@@ -49,12 +49,21 @@ export async function pipelineReviewHandler(job: Job<PipelineReviewJobData>): Pr
       })
 
       const pool = getPool()
+      const notifyPayload = JSON.stringify({
+        stage,
+        status,
+        completedStageCount: ctx.previousResults.length,
+        currentResult: stageResult ? {
+          stage: stageResult.stage,
+          status: stageResult.status,
+          duration: stageResult.duration,
+          issueCount: stageResult.issues?.length ?? 0,
+        } : null,
+      })
+      const safePayload = notifyPayload.length > 7900 ? JSON.stringify({ stage, status, completedStageCount: ctx.previousResults.length, truncated: true }) : notifyPayload
       await pool.query(
         `SELECT pg_notify($1, $2)`,
-        [
-          `upload:${uploadId}`,
-          JSON.stringify({ stage, status, result: stageResult, completedStages: ctx.previousResults }),
-        ],
+        [`upload:${uploadId}`, safePayload],
       )
     }
     const result = await runPipelineReview(ctx, onProgress)
