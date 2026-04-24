@@ -1,7 +1,8 @@
-import type { Job } from 'pg-boss'
 import { log } from '../index'
 import { getPool } from '@cslate/db'
 import { deleteUploadFiles } from '@cslate/storage'
+
+type Job = { data: unknown }
 
 export async function cleanupHandler(_job: Job): Promise<void> {
   log.info('Running cleanup: failed/rejected uploads')

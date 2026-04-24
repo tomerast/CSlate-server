@@ -1,31 +1,34 @@
-import type { Job } from 'pg-boss'
-import { sql } from 'drizzle-orm'
 import { log } from '../index'
-import { getUploadById, updateUpload, getPool, getDb } from '@cslate/db'
-import { getComponentFiles as getUploadFiles } from '@cslate/storage'
+import { getPipelineUploadById, updatePipelineUpload, getPool } from '@cslate/db'
+import { getPipelineFiles } from '@cslate/storage'
 import { runPipelineReview } from '@cslate/pipeline'
-import type { PipelineReviewContext, StageResult, PipelineReviewProgressCallback, AgentReviewProgressCallback } from '@cslate/pipeline'
+import type { PipelineReviewContext, StageResult, PipelineReviewProgressCallback } from '@cslate/pipeline'
 import type { PipelineReviewJobData } from '@cslate/queue'
+
+type Job<T> = { data: T }
 
 export async function pipelineReviewHandler(job: Job<PipelineReviewJobData>): Promise<void> {
   const { uploadId } = job.data
   log.info({ uploadId }, 'Starting pipeline review')
 
-  const upload = await getUploadById(uploadId)
+  const upload = await getPipelineUploadById(uploadId)
   if (!upload) {
-    log.error({ uploadId }, 'Upload not found')
+    log.error({ uploadId }, 'Pipeline upload not found')
     return
   }
 
-  await updateUpload(uploadId, { status: 'in_progress' })
+  await updatePipelineUpload(uploadId, { status: 'in_progress' })
 
   // Load files from R2
   let files: Record<string, string>
   try {
-    files = await getUploadFiles(upload.storageKey)
+    if (!upload.storageKey) {
+      throw new Error('Pipeline upload is missing storageKey')
+    }
+    files = await getPipelineFiles(upload.storageKey)
   } catch (err) {
     log.error({ uploadId, err }, 'Failed to load pipeline files from storage')
-    await updateUpload(uploadId, { status: 'rejected' })
+    await updatePipelineUpload(uploadId, { status: 'rejected' })
     return
   }
 
@@ -38,19 +41,9 @@ export async function pipelineReviewHandler(job: Job<PipelineReviewJobData>): Pr
     previousResults: completedStages,
   }
 
-  // Sub-phase progress streaming for agent_review stage.
-  // This callback can be passed directly to agentReview() when calling outside runPipelineReview.
-  const drizzleDb = getDb()
-  const agentReviewProgressCallback: AgentReviewProgressCallback = async (progress) => {
-    await drizzleDb.execute(sql`SELECT pg_notify('review_progress', ${JSON.stringify({
-      uploadId: ctx.uploadId,
-      ...progress,
-    })})`)
-  }
-
   try {
     const onProgress: PipelineReviewProgressCallback = async (stage, status, stageResult) => {
-      await updateUpload(uploadId, {
+      await updatePipelineUpload(uploadId, {
         currentStage: stage,
         completedStages: ctx.previousResults,
       })
@@ -75,7 +68,7 @@ export async function pipelineReviewHandler(job: Job<PipelineReviewJobData>): Pr
         .filter((s) => s.status === 'failed')
         .map((s) => ({ stage: s.stage, issues: s.issues ?? [] }))
 
-      await updateUpload(uploadId, {
+      await updatePipelineUpload(uploadId, {
         status: 'rejected',
         rejectionReasons,
       })
@@ -88,7 +81,7 @@ export async function pipelineReviewHandler(job: Job<PipelineReviewJobData>): Pr
     }
   } catch (err) {
     log.error({ uploadId, err }, 'Pipeline review threw unexpected error')
-    await updateUpload(uploadId, { status: 'rejected' })
+    await updatePipelineUpload(uploadId, { status: 'rejected' })
 
     const pool = getPool()
     await pool.query(

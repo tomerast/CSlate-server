@@ -1,11 +1,21 @@
 import 'dotenv/config'
 import { createLogger } from '@cslate/logger'
 import { getBoss, stopBoss, JOB_NAMES, registerMaintenanceSchedules, PIPELINE_REVIEW_JOB } from '@cslate/queue'
+import type { ReviewJobData, PipelineReviewJobData } from '@cslate/queue'
 import { reviewHandler } from './handlers/review'
 import { cleanupHandler } from './handlers/maintenance'
 import { pipelineReviewHandler } from './handlers/pipeline-review'
 
 export const log = createLogger('worker')
+
+type QueueJob<T> = { data: T }
+
+async function runJobBatch<T>(
+  jobs: QueueJob<T>[],
+  handler: (job: QueueJob<T>) => Promise<void>,
+): Promise<void> {
+  await Promise.all(jobs.map((job) => handler(job)))
+}
 
 async function main() {
   log.info('Starting CSlate worker...')
@@ -15,19 +25,21 @@ async function main() {
   // Register review job handler
   await boss.work(
     JOB_NAMES.REVIEW_COMPONENT,
-    { teamConcurrency: 5 },
-    reviewHandler
+    { batchSize: 5 },
+    (jobs) => runJobBatch(jobs as QueueJob<ReviewJobData>[], reviewHandler)
   )
 
   // Register pipeline review handler
   await boss.work(
     PIPELINE_REVIEW_JOB,
-    { teamConcurrency: 3 },
-    pipelineReviewHandler,
+    { batchSize: 3 },
+    (jobs) => runJobBatch(jobs as QueueJob<PipelineReviewJobData>[], pipelineReviewHandler),
   )
 
   // Register maintenance job handlers
-  await boss.work(JOB_NAMES.CLEANUP_FAILED_UPLOADS, cleanupHandler)
+  await boss.work(JOB_NAMES.CLEANUP_FAILED_UPLOADS, (jobs) =>
+    runJobBatch(jobs as QueueJob<unknown>[], cleanupHandler),
+  )
   await boss.work(JOB_NAMES.CREATE_PARTITION, async () => {
     await createNextMonthPartition()
   })
