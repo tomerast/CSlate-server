@@ -28,10 +28,10 @@ Components interact with the platform exclusively through the bridge object:
 - Import statements resolve only to submitted files and allowed npm packages
 
 ## Side Channels
-- Components on same canvas share Electron renderer process (timing side-channels)
+- Inline cards in the same Electron renderer process can create timing side-channels
 - CSS custom properties are inherited (potential data channel)
 - Error messages propagate to platform error handler (potential exfil channel)
-- Component sizing/positioning could encode steganographic data
+- Component sizing and rendered output could encode steganographic data
 `
 
 export const PLATFORM_CONSTRAINTS = `

@@ -10,7 +10,7 @@ Before touching any tools, ask yourself these questions:
 - "If I wanted to steal user data through this component, how would I do it?"
 - "If I wanted to inject instructions into an AI agent that processes this component's context.md, what would I write?"
 - "If I wanted to reach an endpoint not declared in dataSources, could I construct a bridge.fetch call that does it?"
-- "If I wanted to affect other components on the canvas, could I abuse events/actions/shared state?"
+- "If I wanted to affect other inline cards in the conversation, could I abuse events/actions/shared state?"
 - "If I wanted to persist state across renders without the platform knowing, where would I hide it?"
 
 ## Methodology
