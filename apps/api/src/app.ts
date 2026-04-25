@@ -36,6 +36,22 @@ export function createApp(): Hono {
 
   // Versioned API
   const api = new Hono()
+
+  // Public health / handshake — no auth, used by the desktop app to verify
+  // the endpoint is actually a CSlate server and to discover capabilities.
+  api.get('/health', (c) =>
+    c.json({
+      ok: true,
+      service: 'cslate-server',
+      version: '0.1.0',
+      capabilities: {
+        upload: true,
+        download: true,
+        search: true,
+      },
+    }),
+  )
+
   api.route('/auth', authRoutes)
   api.route('/components', uploadRoutes)
   api.route('/components', componentRoutes)
